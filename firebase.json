@@ -1,0 +1,15 @@
+{
+  "hosting": {
+    "site": "sukemachi",
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      ".firebaserc",
+      "**/.*",
+      "README.md"
+    ]
+  },
+  "firestore": {
+    "rules": "firestore.rules"
+  }
+}

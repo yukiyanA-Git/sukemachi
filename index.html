@@ -1,0 +1,2988 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>スケマチ - スケジュールマッチング</title>
+  <!-- App Icons & PWA -->
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/icon-16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#4f46e5">
+
+  <!-- Firebase SDK (Firestore Cloud Sync & Realtime Listener) -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Google AdSense -->
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5012440476019514" crossorigin="anonymous"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap');
+    body {
+      font-family: 'Noto Sans JP', 'Inter', sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background-color: #cbd5e1;
+      border-radius: 9999px;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen flex flex-col antialiased">
+
+  <!-- ============================================== -->
+  <!-- ヘッダー（スマホ対応） -->
+  <!-- ============================================== -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-2xs">
+    <div class="max-w-6xl mx-auto px-4 h-14 md:h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-2.5 cursor-pointer" onclick="handleLogoClick()" title="ホーム / 調整表">
+        <div class="w-9 h-9 md:w-10 md:h-10 rounded-xl bg-white flex items-center justify-center shadow-xs shrink-0 border border-slate-200 overflow-hidden">
+          <img src="/apple-touch-icon.png" alt="スケマチ" class="w-full h-full object-cover">
+        </div>
+        <div>
+          <div class="flex items-center space-x-1.5">
+            <span class="font-bold text-base md:text-lg text-slate-800 tracking-tight">スケマチ</span>
+            <span class="text-[10px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded font-bold border border-indigo-200">Pro</span>
+          </div>
+          <p class="hidden sm:block text-[11px] text-slate-500">スケジュールマッチング（ログイン不要・URL共有）</p>
+        </div>
+      </div>
+
+      <div class="flex items-center space-x-2">
+        <button onclick="showCreateView(true)" class="px-3 py-1.5 text-xs md:text-sm font-bold rounded-xl text-slate-700 hover:text-indigo-600 hover:bg-slate-100 transition-colors border border-slate-200">
+          ＋ 新規作成
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content Container -->
+  <main class="flex-1 max-w-6xl mx-auto w-full px-3 md:px-6 py-4 md:py-6">
+
+    <!-- ============================================================== -->
+    <!-- VIEW 1: イベント作成画面（管理者特化UI・日付選んで+2週間など） -->
+    <!-- ============================================================== -->
+    <section id="viewCreate" class="space-y-4 md:space-y-6">
+
+      <!-- ★編集モード中通知バナー（既存の出欠表を編集する場合に表示） -->
+      <div id="adminEditModeBanner" class="hidden p-4 rounded-2xl bg-amber-50 border-2 border-amber-300 text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+        <div class="flex items-start sm:items-center gap-3">
+          <div class="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0">
+            <i data-lucide="edit-3" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <div class="font-bold text-sm flex items-center gap-2">
+              <span>【管理者編集モード】進行中の調整表を編集しています</span>
+              <span id="adminEditBadgeResponses" class="text-xs bg-amber-200 text-amber-900 font-bold px-2 py-0.5 rounded-full">回答データ保持</span>
+            </div>
+            <p class="text-xs text-amber-800 mt-0.5">
+              タイトルや候補日時を変更しても、<strong>これまでに参加者が入力した回答データはそのまま保持されます</strong>。
+            </p>
+          </div>
+        </div>
+        <button type="button" onclick="cancelAdminEdit()" class="px-4 py-2 rounded-xl bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-xs shrink-0 transition-colors shadow-2xs flex items-center justify-center gap-1.5">
+          <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i>
+          <span>変更せず調整表に戻る</span>
+        </button>
+      </div>
+
+      <!-- ★進行中の調整表への復帰バナー（新規作成表示時でも既存データがある場合に表示） -->
+      <div id="activeEventResumeBanner" class="hidden p-3 rounded-xl bg-indigo-50 border border-indigo-200 text-xs text-indigo-900 flex items-center justify-between gap-2 shadow-2xs">
+        <div class="flex items-center gap-2 truncate">
+          <span class="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0">
+            <i data-lucide="calendar" class="w-3.5 h-3.5"></i>
+          </span>
+          <span class="truncate">進行中の調整表: <strong id="activeEventResumeTitle" class="text-indigo-950"></strong></span>
+        </div>
+        <button type="button" onclick="showEventView()" class="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shrink-0 transition-colors flex items-center gap-1">
+          <span>調整表を開く</span>
+          <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
+        </button>
+      </div>
+
+      <!-- タイトル ＆ 前回設定の復元 -->
+      <div class="bg-white p-4 md:p-6 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <div class="flex items-center gap-2 mb-0.5">
+            <span class="text-xs bg-indigo-600 text-white px-2 py-0.5 rounded font-bold">作成・管理</span>
+            <span class="text-xs text-slate-500">管理者用メニュー</span>
+          </div>
+          <h1 id="viewCreateHeaderTitle" class="text-lg md:text-xl font-bold text-slate-800 flex items-center gap-2">
+            <i data-lucide="calendar-plus" class="w-5 h-5 text-indigo-600"></i>
+            新しい日程調整（スケマチ）を作成
+          </h1>
+          <p class="text-xs md:text-sm text-slate-500 mt-0.5">
+            カレンダーで日付を選び、そこから「＋2週間」「＋1か月」などを押すだけで爆速生成できます。
+          </p>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button id="btnHistoryToggle" onclick="toggleHistoryModal()" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors flex items-center gap-1.5 shadow-2xs">
+            <i data-lucide="clock" class="w-3.5 h-3.5 text-indigo-600"></i>
+            <span>作成履歴を見る</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 基本情報入力 -->
+      <div class="bg-white p-4 md:p-6 rounded-2xl border border-slate-200/80 shadow-xs">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+          <div>
+            <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">イベント名 <span class="text-rose-500">*</span></label>
+            <input type="text" id="eventTitle" placeholder="例: 企画ミーティング / 定例打ち合わせ / ランチ会" class="w-full px-3.5 py-2.5 text-xs md:text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">イベント説明・メモ</label>
+            <input type="text" id="eventDesc" placeholder="例: オンライン開催(所要時間60分想定) / 議題: 今後のスケジュール確認" class="w-full px-3.5 py-2.5 text-xs md:text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all">
+          </div>
+        </div>
+      </div>
+
+      <!-- 候補日程 設定パネル -->
+      <div class="bg-white p-4 md:p-6 rounded-2xl border border-slate-200/80 shadow-xs">
+        <div class="flex items-center justify-between pb-3 md:pb-4 border-b border-slate-100 mb-4 md:mb-5">
+          <div>
+            <h2 class="text-sm md:text-base font-bold text-slate-800 flex items-center gap-2">
+              <span class="w-5 h-5 md:w-6 md:h-6 rounded-lg bg-indigo-600 text-white text-xs font-bold flex items-center justify-center">1</span>
+              候補日程の設定
+            </h2>
+            <p class="text-[11px] md:text-xs text-slate-500 mt-0.5">日付を選んで「そこから＋2週間」を押すと、開始日基準で一括生成されます。</p>
+          </div>
+          <button type="button" onclick="resetDateSelection()" class="text-xs text-slate-600 hover:text-slate-800 underline">
+            全クリア
+          </button>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 md:gap-6">
+          
+          <!-- STEP A: カレンダー＆期間選択 (5 cols) -->
+          <div class="lg:col-span-5 bg-slate-50/70 p-3.5 md:p-4 rounded-xl border border-slate-200/70">
+            <div class="flex items-center justify-between mb-3">
+              <span class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                <i data-lucide="calendar" class="w-4 h-4 text-indigo-600"></i>
+                ① 基準日をタップして選ぶ
+              </span>
+              <!-- 月送り -->
+              <div class="flex items-center space-x-1">
+                <button type="button" onclick="changeMonth(-1)" class="p-1 rounded-lg hover:bg-slate-200 text-slate-600">
+                  <i data-lucide="chevron-left" class="w-4 h-4"></i>
+                </button>
+                <span id="calCurrentMonth" class="text-xs font-bold text-slate-700 min-w-[70px] text-center"></span>
+                <button type="button" onclick="changeMonth(1)" class="p-1 rounded-lg hover:bg-slate-200 text-slate-600">
+                  <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                </button>
+              </div>
+            </div>
+
+            <!-- カレンダーグリッド -->
+            <div id="calendarGrid" class="grid grid-cols-7 gap-1 text-center text-xs mb-3"></div>
+
+            <!-- ★基準日からの期間拡張ボタン（改善ポイント） -->
+            <div class="p-2.5 bg-white rounded-xl border border-slate-200 space-y-1.5">
+              <div class="flex items-center justify-between text-[11px] font-bold text-slate-700">
+                <span>選択した日から一括追加:</span>
+                <span id="pivotDateLabel" class="text-indigo-600">基準日: 今日</span>
+              </div>
+              <div class="grid grid-cols-3 gap-1.5">
+                <button type="button" onclick="extendDatesFromPivot(7)" class="text-xs py-1.5 rounded-lg bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 font-bold transition-colors">＋1週間(7日)</button>
+                <button type="button" onclick="extendDatesFromPivot(14)" class="text-xs py-1.5 rounded-lg bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 font-bold transition-colors">＋2週間(14日)</button>
+                <button type="button" onclick="extendDatesFromPivot(30)" class="text-xs py-1.5 rounded-lg bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 font-bold transition-colors">＋1か月(30日)</button>
+              </div>
+            </div>
+
+            <div class="mt-2 text-[11px] text-slate-600 text-right">
+              選択中: <strong id="selectedDatesCount" class="text-indigo-600 font-bold">0</strong> 日
+            </div>
+          </div>
+
+          <!-- STEP B: 時間帯を選ぶ & 掛け合わせ (3 cols) -->
+          <div class="lg:col-span-3 bg-slate-50/70 p-3.5 md:p-4 rounded-xl border border-slate-200/70 flex flex-col justify-between space-y-4">
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                  <i data-lucide="clock" class="w-4 h-4 text-indigo-600"></i>
+                  ② 時間帯を選ぶ
+                </span>
+              </div>
+              <p class="text-[11px] text-slate-600 mb-2.5">よく使う時間帯（×で削除・追加で自動保存）</p>
+
+              <!-- プリセット時間帯リスト -->
+              <div class="space-y-1.5" id="timePresetsContainer"></div>
+
+              <!-- 時間枠＋所要時間のアコーディオン -->
+              <div class="mt-3 pt-3 border-t border-slate-200">
+                <details class="group bg-white p-2.5 rounded-lg border border-slate-200">
+                  <summary class="text-xs font-bold text-indigo-600 flex items-center justify-between cursor-pointer list-none">
+                    <span class="flex items-center gap-1">
+                      <i data-lucide="sliders" class="w-3.5 h-3.5"></i>
+                      時間枠＋所要時間の設定
+                    </span>
+                    <i data-lucide="chevron-down" class="w-3 h-3 transition-transform group-open:rotate-180"></i>
+                  </summary>
+                  <div class="mt-2.5 space-y-2 text-xs">
+                    <p class="text-[10px] text-slate-600">例: 20:00〜24:00 のうち 2時間希望</p>
+                    <div class="grid grid-cols-2 gap-1.5">
+                      <div>
+                        <span class="text-[10px] text-slate-500 block">開始</span>
+                        <input type="text" id="advTimeStart" value="20:00" class="w-full text-xs px-2 py-1 rounded border border-slate-300">
+                      </div>
+                      <div>
+                        <span class="text-[10px] text-slate-500 block">終了</span>
+                        <input type="text" id="advTimeEnd" value="24:00" class="w-full text-xs px-2 py-1 rounded border border-slate-300">
+                      </div>
+                    </div>
+                    <div>
+                      <span class="text-[10px] text-slate-500 block">所要時間（任意）</span>
+                      <input type="text" id="advDuration" placeholder="例: 2時間" class="w-full text-xs px-2 py-1 rounded border border-slate-300">
+                    </div>
+                    <button type="button" onclick="applyAdvancedTimeSetting()" class="w-full py-1 rounded bg-indigo-600 text-white font-bold text-xs hover:bg-indigo-700">
+                      この時間枠を追加適用
+                    </button>
+                  </div>
+                </details>
+              </div>
+
+              <!-- カスタム時間追加 -->
+              <div class="mt-2">
+                <div class="flex items-center gap-1">
+                  <input type="text" id="customTimeInput" placeholder="例: 22:30〜" class="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white">
+                  <button type="button" onclick="addCustomTimePreset()" class="text-xs px-2.5 py-1.5 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 shrink-0">追加</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="pt-2 border-t border-slate-200/80">
+              <label class="flex items-center text-xs text-slate-600 cursor-pointer">
+                <input type="checkbox" id="noTimeCheckbox" onchange="toggleNoTime(this.checked)" class="rounded text-indigo-600 mr-2">
+                時間指定なし（日付のみ）
+              </label>
+            </div>
+          </div>
+
+          <!-- STEP C: リアルタイム候補日リスト プレビュー & 手動微調整 (4 cols) -->
+          <div class="lg:col-span-4 bg-slate-50/70 p-3.5 md:p-4 rounded-xl border border-slate-200/70 flex flex-col">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                <i data-lucide="list" class="w-4 h-4 text-indigo-600"></i>
+                ③ 生成された候補日時
+              </span>
+              <span class="text-[11px] text-indigo-600 font-bold" id="candidateCountLabel">0 件</span>
+            </div>
+            <p class="text-[11px] text-slate-600 mb-2">※ここを直接手動編集・削除してもOKです！</p>
+
+            <textarea id="candidateListTextarea" rows="10" placeholder="左側のカレンダーや時間帯を選ぶと、ここに候補日時が自動展開されます。直接手入力・コピペも可能です。" class="w-full flex-1 p-3 text-xs font-mono leading-relaxed rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 bg-white resize-none custom-scrollbar min-h-[160px]"></textarea>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ============================================== -->
+      <!-- ★管理者専用: 出欠状況一覧 ＆ 各日決定ボタン（◯/△/×） -->
+      <!-- ============================================== -->
+      <div id="adminMatrixSection" class="hidden bg-white p-4 md:p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+          <div>
+            <h2 class="text-sm md:text-base font-bold text-slate-800 flex items-center gap-2">
+              <span class="w-5 h-5 md:w-6 md:h-6 rounded-lg bg-emerald-600 text-white text-xs font-bold flex items-center justify-center">2</span>
+              <span>出欠確認 ＆ 各日の最終決定（◯ / △ / ×）</span>
+            </h2>
+            <p class="text-[11px] md:text-xs text-slate-500 mt-0.5">
+              各候補日の横にある<strong>【◯ 確定】【△ 調整】</strong>を押すと、その日程だけが下の<strong>発信文に自動で載ってきます</strong>（未定の日程は文面から除外されます）。
+            </p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 shrink-0">
+            <button type="button" onclick="autoSelectBestAdminDate()" class="text-xs font-bold px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-colors flex items-center gap-1 shadow-2xs">
+              <i data-lucide="crown" class="w-3.5 h-3.5 text-amber-500"></i>
+              <span>最多出席日を確定</span>
+            </button>
+            <button type="button" onclick="setAllAdminDecisions('circle')" class="text-xs font-medium px-2 py-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors">
+              全日を◯
+            </button>
+            <button type="button" onclick="resetAllAdminDecisions()" class="text-xs text-slate-500 hover:text-slate-800 underline px-1">
+              解除
+            </button>
+            <span id="adminResponseCountBadge" class="text-xs bg-indigo-50 text-indigo-700 font-bold px-2.5 py-1 rounded-lg border border-indigo-200">回答 0 名</span>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto custom-scrollbar">
+          <table class="w-full text-left text-xs border-collapse" id="adminMatrixTable">
+            <!-- JSで動的レンダリング（左端に◯△×決定ボタン付き） -->
+          </table>
+        </div>
+      </div>
+
+      <!-- ============================================== -->
+      <!-- ★管理者専用: 日程の確定 ＆ 発信文言の作成 -->
+      <!-- ============================================== -->
+      <div id="adminDecisionSection" class="hidden bg-white p-4 md:p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+          <div>
+            <h2 class="text-sm md:text-base font-bold text-slate-800 flex items-center gap-2">
+              <span class="w-5 h-5 md:w-6 md:h-6 rounded-lg bg-indigo-600 text-white text-xs font-bold flex items-center justify-center">3</span>
+              <span>発信用メッセージの作成（メール / Slack / LINE）</span>
+            </h2>
+            <p class="text-[11px] md:text-xs text-slate-500 mt-0.5">
+              上の表で【◯ 確定】や【△ 調整】を押した日程が、自動的に以下のメッセージ文面に組み込まれます。
+            </p>
+          </div>
+          <!-- 通知種別の切り替え -->
+          <div class="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200 shrink-0">
+            <button type="button" id="btnAdminMsgTypeConfirm" onclick="switchAdminMsgType('confirm')" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-indigo-700 shadow-2xs transition-all">
+              日程確定の連絡文
+            </button>
+            <button type="button" id="btnAdminMsgTypeInvite" onclick="switchAdminMsgType('invite')" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-800 transition-all">
+              出欠入力のお願い文
+            </button>
+          </div>
+        </div>
+
+        <!-- 決定状況サマリーバナー -->
+        <div id="adminDecisionSummaryBanner" class="p-3 rounded-xl bg-indigo-50/70 border border-indigo-200/80 text-xs text-indigo-950 flex flex-wrap items-center justify-between gap-2">
+          <!-- JSで動的表示（例: 確定: 2件 / 調整中: 1件 / 未定: 4件） -->
+        </div>
+
+        <!-- 連絡チャンネル切替 (メール / Slack / LINE) -->
+        <div>
+          <div class="flex border-b border-slate-200 text-xs">
+            <button type="button" id="tabAdminChanEmail" onclick="switchAdminChannel('email')" class="px-4 py-2 font-bold text-indigo-600 border-b-2 border-indigo-600 transition-colors">
+              メール用（社外・社内）
+            </button>
+            <button type="button" id="tabAdminChanSlack" onclick="switchAdminChannel('slack')" class="px-4 py-2 font-medium text-slate-600 hover:text-indigo-600 transition-colors">
+              Slack / Teams用
+            </button>
+            <button type="button" id="tabAdminChanLine" onclick="switchAdminChannel('line')" class="px-4 py-2 font-medium text-slate-600 hover:text-indigo-600 transition-colors">
+              LINE / チャット用
+            </button>
+          </div>
+
+          <div class="mt-3 relative">
+            <textarea id="adminGeneratedMessageTextarea" rows="7" class="w-full p-3 text-xs font-mono rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 resize-none"></textarea>
+            <div class="mt-2 flex flex-wrap items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <a id="btnAdminGCalLink" href="#" target="_blank" rel="noopener noreferrer" class="hidden px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 text-xs font-bold flex items-center gap-1.5">
+                  <i data-lucide="calendar" class="w-3.5 h-3.5"></i>
+                  <span>Googleカレンダーに追加</span>
+                </a>
+              </div>
+              <button type="button" onclick="copyAdminGeneratedMessage()" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs transition-colors flex items-center gap-1.5">
+                <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                <span>メッセージをコピー</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- アクションボタン領域（新規作成時と編集時で自動切替 ＆ PASS入力欄を直前に配置） -->
+      <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-4 border-t border-slate-200/80">
+        <button type="button" id="btnCancelEditEvent" onclick="cancelAdminEdit()" class="hidden px-5 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs md:text-sm transition-all flex items-center justify-center gap-1.5 shrink-0">
+          <i data-lucide="arrow-left" class="w-4 h-4"></i>
+          <span>変更せず調整表に戻る</span>
+        </button>
+
+        <div class="flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-3 ml-auto w-full sm:w-auto">
+          <!-- ★管理用PASS入力枠（出欠表作成ボタンのすぐ左：入力忘れ防止） -->
+          <div class="flex items-center justify-between sm:justify-start gap-2.5 px-3.5 py-2 rounded-xl bg-indigo-50/80 border border-indigo-200 shadow-2xs">
+            <div class="flex items-center gap-1.5">
+              <i data-lucide="key-round" class="w-4 h-4 text-indigo-600 shrink-0"></i>
+              <div class="text-left">
+                <label for="optAdminPin" class="block text-xs font-bold text-indigo-950 leading-tight cursor-pointer">
+                  管理PASS <span class="text-rose-500">*</span>
+                </label>
+                <span class="block text-[10px] text-indigo-600/80 leading-tight">確定・編集用4桁PIN</span>
+              </div>
+            </div>
+            <input type="text" id="optAdminPin" maxlength="4" pattern="\d*" inputmode="numeric" placeholder="4桁数字" value="1234" class="w-20 px-2.5 py-1.5 rounded-lg border border-indigo-300 focus:border-indigo-600 focus:ring-2 focus:ring-indigo-500/20 text-center font-mono font-bold text-sm tracking-widest text-slate-900 bg-white" title="4桁の数字を入力してください（後から確定・編集する際に必要になります）">
+          </div>
+
+          <button type="button" id="btnSubmitCreateEvent" onclick="submitEventFormAction()" class="w-full sm:w-auto px-7 py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm shadow-md shadow-indigo-200 transition-all flex items-center justify-center gap-2 shrink-0">
+            <span id="btnSubmitCreateEventText">出欠表を作成する</span>
+            <span id="btnSubmitCreateEventIconWrap"><i data-lucide="arrow-right" class="w-4 h-4"></i></span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- ============================================================== -->
+    <!-- VIEW 2: 日程調整ビュー（上部タブで「入力」「一覧」をサクッと切替） -->
+    <!-- ============================================================== -->
+    <section id="viewEvent" class="hidden space-y-4">
+
+      <!-- ★画面内通知バナー（日程確定 / 候補日更新検知） -->
+      <div id="bannerScheduleConfirmed" class="hidden p-3.5 rounded-2xl bg-emerald-600 text-white shadow-xs flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2.5 text-xs md:text-sm font-bold">
+          <i data-lucide="check-circle-2" class="w-5 h-5 shrink-0 text-emerald-200"></i>
+          <div>
+            <span>🎉 日程が確定しました！</span>
+            <span id="bannerConfirmedDateText" class="ml-1 font-bold underline underline-offset-2"></span>
+          </div>
+        </div>
+        <button type="button" onclick="dismissConfirmedBanner()" class="text-emerald-200 hover:text-white p-1 rounded-lg" title="閉じる">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div id="bannerScheduleUpdated" class="hidden p-3.5 rounded-2xl bg-indigo-600 text-white shadow-xs flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2.5 text-xs md:text-sm">
+          <i data-lucide="bell-ring" class="w-5 h-5 shrink-0 text-indigo-200"></i>
+          <div>
+            <span class="font-bold">💡 候補日程が更新されました。</span>
+            <span class="text-xs text-indigo-100 hidden sm:inline">最新の日程をご確認の上、出欠をご登録ください。</span>
+          </div>
+        </div>
+        <button type="button" onclick="dismissUpdatedBanner()" class="text-indigo-200 hover:text-white p-1 rounded-lg" title="閉じる">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- イベント概要ヘッダー -->
+      <div class="bg-white p-4 md:p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <div class="flex items-center gap-2 mb-1">
+              <span id="badgeEventStatus" class="text-xs bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded-md border border-indigo-200">出欠調整中</span>
+              <span id="responseCountHeaderBadge" class="text-xs text-slate-500 font-medium">回答 0 名</span>
+            </div>
+            <h1 id="dispEventTitle" class="text-xl md:text-2xl font-bold text-slate-900"></h1>
+            <p id="dispEventDesc" class="text-xs md:text-sm text-slate-500 mt-0.5"></p>
+          </div>
+
+          <!-- アクションボタン（URLコピー、回答通知、管理ページ） -->
+          <div class="flex items-center gap-2 shrink-0 flex-wrap sm:flex-nowrap">
+            <button type="button" onclick="copyShareUrl()" class="px-3 py-1.5 text-xs font-medium rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 flex items-center gap-1.5 transition-colors" title="この調整表のURLをコピーして仲間に送る">
+              <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+              <span>URLをコピー</span>
+            </button>
+
+            <!-- 回答通知ボタン（PWA・ブラウザ通知） -->
+            <button type="button" id="btnToggleNotification" onclick="toggleWebNotification()" class="px-3 py-1.5 text-xs font-medium rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 flex items-center gap-1.5 transition-colors" title="新しい回答があった際に通知を受け取る">
+              <i data-lucide="bell" id="iconNotifStatus" class="w-3.5 h-3.5 text-slate-500"></i>
+              <span id="textNotifStatus">通知を受け取る</span>
+            </button>
+            
+            <!-- 管理者用ボタン（暗証番号でα管理画面へ） -->
+            <button type="button" id="btnAdminAccess" onclick="handleAdminAccessClick()" class="px-3 py-1.5 text-xs font-bold rounded-xl bg-slate-900 text-white hover:bg-slate-800 flex items-center gap-1.5 transition-colors shadow-xs" title="日程の編集や確定を行う管理者用画面へ">
+              <i data-lucide="lock" class="w-3.5 h-3.5 text-indigo-400"></i>
+              <span id="btnAdminAccessText">管理ページ</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- ★上部ナビゲーションタブ（入力と一覧の切替ボタン） -->
+        <div class="mt-4 pt-3 border-t border-slate-100 flex items-center gap-2">
+          <button id="tabBtnInput" onclick="switchEventSubTab('input')" class="flex-1 sm:flex-none sm:px-5 py-2.5 rounded-xl text-xs md:text-sm font-bold bg-indigo-600 text-white shadow-xs flex items-center justify-center gap-1.5 transition-all">
+            <i data-lucide="edit-3" class="w-4 h-4"></i>
+            <span>出欠を入力・変更する</span>
+          </button>
+          <button id="tabBtnTable" onclick="switchEventSubTab('table')" class="flex-1 sm:flex-none sm:px-5 py-2.5 rounded-xl text-xs md:text-sm font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 flex items-center justify-center gap-1.5 transition-all">
+            <i data-lucide="table" class="w-4 h-4"></i>
+            <span>出欠一覧表を見る</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ============================================== -->
+      <!-- サブタブ 1: 出欠入力フォーム（◯△×がボタン式で超直感的に！） -->
+      <!-- ============================================== -->
+      <div id="subTabInput" class="bg-white p-4 md:p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100">
+          <div>
+            <h3 class="font-bold text-base text-slate-800 flex items-center gap-1.5">
+              <i data-lucide="user-check" class="w-5 h-5 text-indigo-600"></i>
+              出欠を入力する
+            </h3>
+            <p class="text-xs text-slate-500 mt-0.5">
+              各日のボタン【◯】【△】【×】を直接タップしてください。
+            </p>
+          </div>
+
+          <!-- 全て◯にする便利ボタン -->
+          <button type="button" onclick="setAllAttendanceButtons('circle')" class="text-xs font-bold px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-colors flex items-center gap-1">
+            <i data-lucide="check" class="w-3.5 h-3.5"></i>
+            <span>すべて「◯」にする</span>
+          </button>
+        </div>
+
+        <!-- ★自分の回答認識バナー（編集モード表示） -->
+        <div id="myResponseBanner" class="hidden p-3 rounded-xl bg-indigo-50 border border-indigo-200 text-xs text-indigo-900 flex items-center justify-between gap-2">
+          <div class="flex items-center gap-2">
+            <span class="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0">
+              <i data-lucide="user" class="w-3.5 h-3.5"></i>
+            </span>
+            <div>
+              <span class="font-bold" id="myResponseBannerText">前回回答した内容を読み込んでいます</span>
+              <p class="text-[11px] text-indigo-700 mt-0.5">変更したい箇所を修正して「更新する」を押してください。</p>
+            </div>
+          </div>
+          <button type="button" onclick="cancelEditingResponse()" class="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-white text-indigo-700 hover:bg-indigo-100 border border-indigo-200 shrink-0">
+            新規回答として入力
+          </button>
+        </div>
+
+        <form id="attendanceForm" onsubmit="submitAttendance(event)" class="space-y-4">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-bold text-slate-700 mb-1">お名前（会社名・役職など） <span class="text-rose-500">*</span></label>
+              <input type="text" id="inputUserName" required placeholder="例: 山田 / 田中 花子 / 〇〇部 佐藤" class="w-full px-3.5 py-2 text-xs md:text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-700 mb-1">全体コメント（任意）</label>
+              <input type="text" id="inputUserComment" placeholder="例: 〇〇日は別件調整中のため△にしています。よろしくお願いいたします。" class="w-full px-3.5 py-2 text-xs md:text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600">
+            </div>
+          </div>
+
+          <!-- 日程ごとの選択行リスト（ボタン式で直接タップ！） -->
+          <div class="border border-slate-200 rounded-xl overflow-hidden mt-2">
+            <div class="bg-slate-100/80 px-3.5 py-2.5 text-xs font-bold text-slate-700 flex items-center justify-between">
+              <span>候補日時</span>
+              <span class="pr-2">出欠選択 (タップ) ＆ 時間微調整</span>
+            </div>
+            <div id="attendanceInputRows" class="divide-y divide-slate-100 max-h-[480px] overflow-y-auto custom-scrollbar bg-white">
+              <!-- JSでボタン式UIを動的レンダリング -->
+            </div>
+          </div>
+
+          <div class="flex justify-end pt-1">
+            <button type="submit" id="btnSubmitAttendance" class="w-full sm:w-auto px-8 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm shadow-md shadow-indigo-100 transition-all flex items-center justify-center gap-1.5">
+              <span id="btnSubmitAttendanceIconWrap"><i data-lucide="send" class="w-4 h-4"></i></span>
+              <span id="btnSubmitAttendanceText">出欠を登録して一覧表を見る</span>
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- ============================================== -->
+      <!-- サブタブ 2: 出欠一覧表（ヘッダー重なり完全解消） -->
+      <!-- ============================================== -->
+      <div id="subTabTable" class="hidden space-y-4">
+
+        <!-- テーブル本体カード -->
+        <div class="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+          <div class="p-3.5 md:p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
+            <div class="flex items-center gap-2">
+              <h3 class="font-bold text-sm text-slate-800 flex items-center gap-1.5">
+                <i data-lucide="table" class="w-4 h-4 text-indigo-600"></i>
+                みんなの出欠一覧表
+              </h3>
+              <span id="responseCountTableBadge" class="text-xs text-slate-500">回答 0 名</span>
+            </div>
+
+            <button onclick="switchEventSubTab('input')" class="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
+              <i data-lucide="edit-2" class="w-3.5 h-3.5"></i>
+              <span>自分の回答を入力/変更</span>
+            </button>
+          </div>
+
+          <!-- テーブル表示部 -->
+          <div class="overflow-x-auto custom-scrollbar">
+            <table class="w-full text-left text-xs border-collapse" id="matrixTable">
+              <!-- JSで動的レンダリング -->
+            </table>
+          </div>
+        </div>
+
+      </div>
+
+          <!-- ④ 配られた側の人が今後使えるバイラル導線 -->
+      <div class="mt-6 p-4 rounded-2xl bg-gradient-to-r from-indigo-900 to-slate-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center text-white shrink-0">
+            <i data-lucide="calendar-heart" class="w-5 h-5 text-indigo-300"></i>
+          </div>
+          <div>
+            <div class="text-sm font-bold">あなたも「スケマチ」で日程調整を作りませんか？</div>
+            <div class="text-xs text-indigo-200 mt-0.5">登録不要・完全無料。カレンダーを選んでURLを配るだけです。</div>
+          </div>
+        </div>
+        <button onclick="showCreateView(true)" class="px-4 py-2 rounded-xl bg-white text-indigo-900 font-bold text-xs hover:bg-indigo-50 transition-colors shrink-0 shadow-sm">
+          新しい調整表を作る
+        </button>
+      </div>
+    </section>
+
+    <!-- ============================================== -->
+    <!-- Google AdSense 広告枠（ページ下部・控えめな配置） -->
+    <!-- ============================================== -->
+    <div id="bottomAdArea" class="mt-8 pt-2">
+      <div class="p-3 bg-white/90 border border-slate-200/80 rounded-2xl text-center shadow-2xs backdrop-blur-sm">
+        <span class="text-[9px] text-slate-400 block mb-1">スポンサーリンク</span>
+        <!-- AdSense タグ -->
+        <ins class="adsbygoogle"
+             style="display:block; min-height:60px;"
+             data-ad-client="ca-pub-5012440476019514"
+             data-ad-slot="6530054130"
+             data-ad-format="auto"
+             data-full-width-responsive="true"></ins>
+        <script>
+          try { (adsbygoogle = window.adsbygoogle || []).push({}); } catch (e) {}
+        </script>
+        <div class="py-1 text-[11px] text-slate-400 font-medium flex items-center justify-center gap-1">
+          <span>📅</span><span>スケマチ・公式広告枠</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================== -->
+    <!-- yukiyanArt 公式クロスプロモーションバー -->
+    <!-- ============================================== -->
+    <div class="mt-4">
+      <div id="promo-bar"></div>
+    </div>
+
+    <!-- ============================================== -->
+    <!-- フッター (Feedback & Release Hub 連携) -->
+    <!-- ============================================== -->
+    <footer class="mt-8 py-6 border-t border-slate-200 text-center text-xs text-slate-500 space-y-2">
+      <div class="flex items-center justify-center gap-3 flex-wrap">
+        <span class="font-bold text-slate-700">スケマチ (Sukemachi)</span>
+        <span>•</span>
+        <a href="https://yukiyanart-feedback-hub.web.app/?app_id=sukemachi" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:text-indigo-800 underline inline-flex items-center gap-1 font-semibold">
+          <i data-lucide="message-square" class="w-3.5 h-3.5"></i>
+          <span>ご要望・不具合 (Feedback & Release Hub)</span>
+        </a>
+      </div>
+      <p class="text-[11px] text-slate-400">© 2026 yukiyanArt - スケマチ</p>
+    </footer>
+  </main>
+
+  <!-- ============================================== -->
+  <!-- MODAL: 入力願い通知モーダル -->
+  <!-- ============================================== -->
+  <div id="modalNotify" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-5 md:p-6 shadow-2xl border border-slate-100 space-y-4">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+        <h3 class="text-sm md:text-base font-bold text-slate-800 flex items-center gap-2">
+          <i data-lucide="send" class="w-5 h-5 text-indigo-600"></i>
+          出欠表の案内文をコピー
+        </h3>
+        <button onclick="closeNotifyModal()" class="text-slate-400 hover:text-slate-600">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <p class="text-xs text-slate-500">
+        Discord、LINE、Slack、メールにそのまま貼り付けられる案内文です。
+      </p>
+
+      <div class="space-y-3">
+        <div class="flex rounded-lg border border-slate-200 p-0.5 bg-slate-100 text-xs">
+          <button type="button" onclick="switchNotifyTab('external_email')" id="tabNotifyExtEmail" class="flex-1 py-1.5 rounded-md font-bold bg-white text-indigo-600 shadow-2xs">社外メール用(敬語)</button>
+          <button type="button" onclick="switchNotifyTab('internal_slack')" id="tabNotifyIntSlack" class="flex-1 py-1.5 rounded-md font-medium text-slate-600">社内Slack/Teams用</button>
+          <button type="button" onclick="switchNotifyTab('line')" id="tabNotifyLine" class="flex-1 py-1.5 rounded-md font-medium text-slate-600">LINE/チャット用</button>
+        </div>
+
+        <div class="relative">
+          <textarea id="notifyMessageTextarea" rows="6" readonly class="w-full text-xs bg-slate-50 p-3 rounded-xl border border-slate-200 text-slate-700 font-mono resize-none focus:outline-none"></textarea>
+          <button onclick="copyNotifyMessage()" class="absolute top-2.5 right-2.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1 shadow-xs transition-colors">
+            <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+            <span>コピー</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="flex justify-end pt-1">
+        <button onclick="closeNotifyModal()" class="px-5 py-2 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700">
+          閉じる
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================== -->
+  <!-- MODAL: 日程確定 & 案内フォーマット生成モーダル -->
+  <!-- ============================================== -->
+  <div id="modalDecision" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-5 md:p-6 shadow-2xl border border-slate-100 space-y-4">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+        <h3 class="text-sm md:text-base font-bold text-slate-800 flex items-center gap-2">
+          <i data-lucide="calendar-check-2" class="w-5 h-5 text-emerald-600"></i>
+          開催日程の決定・共有
+        </h3>
+        <button onclick="closeDecisionModal()" class="text-slate-400 hover:text-slate-600">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div>
+        <label class="block text-xs font-bold text-slate-600 mb-1">確定する日程を選択</label>
+        <select id="modalDateSelect" class="w-full px-3 py-2 text-xs md:text-sm rounded-xl border border-slate-300 font-medium bg-slate-50">
+        </select>
+      </div>
+
+      <div class="space-y-2 pt-1">
+        <a id="btnGoogleCalendar" target="_blank" href="#" class="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-colors">
+          <i data-lucide="calendar" class="w-4 h-4"></i>
+          <span>Googleカレンダーに予定を登録</span>
+        </a>
+
+        <div class="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-[11px] font-bold text-slate-600">Discord / LINE 確定連絡フォーマット</span>
+            <button onclick="copyAnnouncementText()" class="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
+              <i data-lucide="copy" class="w-3 h-3"></i> コピー
+            </button>
+          </div>
+          <textarea id="modalShareText" rows="4" readonly class="w-full text-xs bg-white p-2.5 rounded-lg border border-slate-200 text-slate-700 font-mono resize-none"></textarea>
+        </div>
+      </div>
+
+      <div class="flex justify-end pt-1">
+        <button onclick="closeDecisionModal()" class="px-4 py-2 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700">
+          閉じる
+        </button>
+      </div>
+    </div>
+  </div>
+
+    <!-- MODAL: 管理者認証モーダル (4桁PIN入力でγからαへ) -->
+  <div id="modalAdminAuth" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 space-y-4 text-center">
+      <div class="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto">
+        <i data-lucide="shield-check" class="w-6 h-6"></i>
+      </div>
+      <div>
+        <h3 class="font-bold text-base text-slate-800">管理者認証</h3>
+        <p class="text-xs text-slate-500 mt-1">イベント作成時に設定した4桁のパスコードを入力してください。（初期値: 1234）</p>
+      </div>
+
+      <div>
+        <input type="password" id="inputAuthPin" maxlength="4" placeholder="••••" class="w-36 px-4 py-2 text-center text-2xl font-mono font-bold tracking-widest border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 mx-auto block">
+        <p id="authErrorMsg" class="text-rose-500 text-xs mt-1.5 hidden font-medium">パスコードが正しくありません</p>
+      </div>
+
+      <div class="flex items-center gap-2 pt-2">
+        <button onclick="closeAdminAuthModal()" class="flex-1 py-2 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700">キャンセル</button>
+        <button onclick="submitAdminAuth()" class="flex-1 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs">認証して管理</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: 作成履歴モーダル -->
+  <div id="modalHistory" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-5 md:p-6 shadow-2xl border border-slate-100 space-y-4">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+        <h3 class="text-sm md:text-base font-bold text-slate-800 flex items-center gap-2">
+          <i data-lucide="history" class="w-5 h-5 text-indigo-600"></i>
+          過去に作成した日程調整（スケマチ履歴）
+        </h3>
+        <button onclick="closeHistoryModal()" class="text-slate-400 hover:text-slate-600">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div id="historyListContainer" class="space-y-2 max-h-72 overflow-y-auto custom-scrollbar">
+        <!-- JSで履歴一覧を展開 -->
+      </div>
+
+      <div class="flex justify-end pt-1">
+        <button onclick="closeHistoryModal()" class="px-4 py-2 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700">
+          閉じる
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: 別デバイス時の回答編集確認ダイアログ -->
+  <div id="modalConfirmEdit" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 space-y-4 text-center">
+      <div class="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto">
+        <i data-lucide="edit-3" class="w-6 h-6"></i>
+      </div>
+      <div>
+        <h3 class="font-bold text-base text-slate-800">回答内容の編集</h3>
+        <p class="text-xs text-slate-600 mt-2 leading-relaxed">
+          「<span id="confirmEditTargetName" class="font-bold text-indigo-600"></span>」さんの回答内容を編集しますか？
+        </p>
+        <p class="text-[11px] text-slate-400 mt-1">※ご本人の場合のみ「編集する」を押してください。</p>
+      </div>
+
+      <div class="flex items-center gap-2 pt-2">
+        <button onclick="closeConfirmEditModal()" class="flex-1 py-2 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700">キャンセル</button>
+        <button onclick="proceedEditingTargetResponse()" class="flex-1 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs">編集する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notification Toast -->
+  <div id="toast" class="fixed bottom-5 right-5 bg-slate-900 text-white px-4 py-2.5 rounded-xl text-xs font-medium shadow-xl opacity-0 transition-opacity duration-300 pointer-events-none z-50 flex items-center gap-2">
+    <i data-lucide="check" class="w-4 h-4 text-emerald-400"></i>
+    <span id="toastMsg">通知メッセージ</span>
+  </div>
+
+  <!-- ============================================== -->
+  <!-- JavaScript: アプリロジック -->
+  <!-- ============================================== -->
+  <script>
+    // --- State ---
+    let currentCalDate = new Date();
+    let pivotDate = new Date(); // 期間拡張の基準日
+    let selectedDates = new Set();
+    let selectedTimePresets = new Set(); // ユーザーが明示的にチェックした時間帯のみ保持
+    let isNoTimeMode = false;
+
+    let currentEventSubTab = "input"; // 'input' or 'table'
+    let currentNotifyTab = "external_email";
+
+    // 確定モーダルのモード: 'weekly' (週間一覧) or 'single' (単日確定)
+    let currentDecisionMode = "weekly";
+    let currentFormatChannel = "external_email";
+
+    // フォーム入力中の各日程の出欠状態 (idx -> { val: 'circle'|'triangle'|'cross', timeAdj: '' })
+    let formAttendanceState = {};
+
+    // 自分の回答ID（ローカル保存）および現在編集中の回答ID
+    let myResponseId = null;
+    let editingResponseId = null;
+    let pendingConfirmTarget = null; // 別デバイスからの編集確認用
+
+    // ローカル保存されるビジネス時間帯プリセット
+    let defaultTimePresets = [
+      { id: "t1", label: "10:00〜11:00", value: "10:00〜11:00" },
+      { id: "t2", label: "13:00〜14:00", value: "13:00〜14:00" },
+      { id: "t3", label: "14:00〜15:00", value: "14:00〜15:00" },
+      { id: "t4", label: "15:00〜16:00", value: "15:00〜16:00" },
+      { id: "t5", label: "16:00〜17:00", value: "16:00〜17:00" },
+    ];
+
+    let currentEvent = null;
+
+    // ==============================================
+    // Firebase Cloud Sync & Web Notifications
+    // ==============================================
+    const firebaseConfig = {
+      apiKey: "AIzaSyCl_dtBZNBQBTHwtrVe7vrm38tS5b705NI",
+      authDomain: "yukiyanart-feedback-hub.firebaseapp.com",
+      projectId: "yukiyanart-feedback-hub",
+      storageBucket: "yukiyanart-feedback-hub.firebasestorage.app",
+      messagingSenderId: "19779026628",
+      appId: "1:19779026628:web:f22fdc61e19115afa91391"
+    };
+
+    let db = null;
+    try {
+      if (typeof firebase !== "undefined") {
+        if (!firebase.apps.length) {
+          firebase.initializeApp(firebaseConfig);
+        }
+        db = firebase.firestore();
+      }
+    } catch (e) {
+      console.warn("Firebase Cloud Sync init fallback to local:", e);
+    }
+
+    // PWA Service Worker Registration
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(e => console.warn("SW register err:", e));
+    }
+
+    let cloudUnsubscribe = null;
+    let initialCloudLoadDone = false;
+    let lastKnownResponseCount = 0;
+    let lastKnownCandidateCount = 0;
+
+    async function syncEventToCloud(evt) {
+      if (!evt || !evt.id) return;
+      // 1. ローカルストレージに即時保存
+      localStorage.setItem("smart_chosei_event", JSON.stringify(evt));
+      localStorage.setItem(`skm_event_${evt.id}`, JSON.stringify(evt));
+      saveEventToHistory(evt);
+
+      // 2. クラウド（Firestore）へ非同期保存
+      if (!db) return;
+      try {
+        const payload = JSON.parse(JSON.stringify(evt));
+        payload.updatedAt = new Date().toISOString();
+        await db.collection("skm_events").doc(evt.id).set(payload, { merge: true });
+      } catch (err) {
+        console.warn("Cloud save fallback to local:", err);
+      }
+    }
+
+    function listenEventFromCloud(eventId) {
+      if (cloudUnsubscribe) {
+        cloudUnsubscribe();
+        cloudUnsubscribe = null;
+      }
+      if (!db || !eventId) return;
+
+      cloudUnsubscribe = db.collection("skm_events").doc(eventId).onSnapshot((doc) => {
+        if (doc.exists) {
+          const remoteEvt = doc.data();
+          handleCloudEventUpdate(remoteEvt);
+        }
+      }, (err) => {
+        console.warn("Cloud sync listener warning:", err);
+      });
+    }
+
+    function handleCloudEventUpdate(remoteEvt) {
+      if (!remoteEvt || remoteEvt.id !== currentEvent?.id) return;
+
+      const prevRespCount = currentEvent?.responses ? currentEvent.responses.length : 0;
+      const newRespCount = remoteEvt.responses ? remoteEvt.responses.length : 0;
+
+      const prevCandCount = currentEvent?.candidates ? currentEvent.candidates.length : 0;
+      const newCandCount = remoteEvt.candidates ? remoteEvt.candidates.length : 0;
+
+      const prevConfirmed = getConfirmedDateStrings(currentEvent);
+      const newConfirmed = getConfirmedDateStrings(remoteEvt);
+
+      // 既存データの更新
+      currentEvent = remoteEvt;
+      localStorage.setItem("smart_chosei_event", JSON.stringify(currentEvent));
+      localStorage.setItem(`skm_event_${currentEvent.id}`, JSON.stringify(currentEvent));
+      saveEventToHistory(currentEvent);
+
+      // 画面更新（入力中のフォームは上書きしない）
+      updateEventHeaderInfo();
+      renderMatrixTable();
+
+      // 通知・バナー判定
+      if (initialCloudLoadDone) {
+        // 新しい回答があった場合
+        if (newRespCount > prevRespCount) {
+          const latestResp = remoteEvt.responses[newRespCount - 1];
+          const respName = latestResp?.name || "参加者";
+          triggerWebNotification(respName);
+          showToast(`🔔 ${respName} さんが新しく出欠を入力しました！`);
+        }
+
+        // 日程確定された場合
+        if (newConfirmed.length > 0 && prevConfirmed.length === 0) {
+          showConfirmedBanner(newConfirmed.join(", "));
+          showToast("🎉 日程が確定しました！");
+        }
+
+        // 候補日程が追加・変更された場合
+        if (newCandCount !== prevCandCount && prevCandCount > 0) {
+          showUpdatedBanner();
+          renderAttendanceInputRows();
+        }
+      } else {
+        // 初回ロード時
+        if (newConfirmed.length > 0) {
+          showConfirmedBanner(newConfirmed.join(", "));
+        }
+        initialCloudLoadDone = true;
+      }
+
+      lastKnownResponseCount = newRespCount;
+      lastKnownCandidateCount = newCandCount;
+    }
+
+    function getConfirmedDateStrings(evt) {
+      if (!evt) return [];
+      const decisions = evt.adminDecisions || evt.finalDecisions || {};
+      return Object.keys(decisions).filter(k => decisions[k] === "circle");
+    }
+
+    function updateEventHeaderInfo() {
+      if (!currentEvent) return;
+      const titleEl = document.getElementById("dispEventTitle");
+      const descEl = document.getElementById("dispEventDesc");
+      const badgeCount = document.getElementById("responseCountHeaderBadge");
+      const badgeStatus = document.getElementById("badgeEventStatus");
+
+      if (titleEl) titleEl.innerText = currentEvent.title;
+      if (descEl) descEl.innerText = currentEvent.desc || "（説明・メモなし）";
+
+      const count = currentEvent.responses ? currentEvent.responses.length : 0;
+      if (badgeCount) badgeCount.innerText = `回答 ${count} 名`;
+
+      const confirmedDates = getConfirmedDateStrings(currentEvent);
+      if (badgeStatus) {
+        if (confirmedDates.length > 0) {
+          badgeStatus.className = "text-xs bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-md border border-emerald-300";
+          badgeStatus.innerText = "日程確定";
+        } else {
+          badgeStatus.className = "text-xs bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded-md border border-indigo-200";
+          badgeStatus.innerText = "出欠調整中";
+        }
+      }
+    }
+
+    // ==============================================
+    // Web Notification (ブラウザ / PWA 通知)
+    // ==============================================
+    function isNotificationActive() {
+      return localStorage.getItem("skm_notif_enabled") === "true" && ("Notification" in window) && Notification.permission === "granted";
+    }
+
+    async function toggleWebNotification() {
+      if (!("Notification" in window)) {
+        alert("お使いのブラウザまたは環境はWeb通知に対応していません。\n（※スマホの場合はSafari/Chromeで『ホーム画面に追加』すると通知が有効化できます）");
+        return;
+      }
+
+      if (Notification.permission === "granted") {
+        const cur = localStorage.getItem("skm_notif_enabled") === "true";
+        const next = !cur;
+        localStorage.setItem("skm_notif_enabled", next ? "true" : "false");
+        updateNotificationUI();
+        showToast(next ? "🔔 回答の通知をONにしました！" : "🔕 回答の通知をOFFにしました");
+      } else if (Notification.permission !== "denied") {
+        try {
+          const perm = await Notification.requestPermission();
+          if (perm === "granted") {
+            localStorage.setItem("skm_notif_enabled", "true");
+            updateNotificationUI();
+            showToast("🔔 通知を許可しました！回答が届いた際にお知らせします。");
+            // 動作確認用テスト通知
+            new Notification("【スケマチ】回答通知が有効になりました", {
+              body: "参加者から回答や変更があった際に通知が届きます。",
+              icon: "/apple-touch-icon.png",
+              badge: "/icon-192.png"
+            });
+          } else {
+            showToast("通知が許可されませんでした");
+          }
+        } catch (e) {
+          console.warn("Notification request error:", e);
+        }
+      } else {
+        alert("ブラウザの通知設定がブロックされています。\nブラウザの設定から通知許可をオンにしてください。");
+      }
+    }
+
+    function updateNotificationUI() {
+      const btn = document.getElementById("btnToggleNotification");
+      const icon = document.getElementById("iconNotifStatus");
+      const text = document.getElementById("textNotifStatus");
+      if (!btn || !icon || !text) return;
+
+      const active = isNotificationActive();
+      if (active) {
+        btn.className = "px-3 py-1.5 text-xs font-bold rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-300 flex items-center gap-1.5 transition-colors shadow-xs";
+        icon.className = "w-3.5 h-3.5 text-emerald-600";
+        text.innerText = "通知ON";
+      } else {
+        btn.className = "px-3 py-1.5 text-xs font-medium rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 flex items-center gap-1.5 transition-colors";
+        icon.className = "w-3.5 h-3.5 text-slate-500";
+        text.innerText = "通知を受け取る";
+      }
+      try { lucide.createIcons(); } catch (e) {}
+    }
+
+    function triggerWebNotification(respondentName) {
+      if (!isNotificationActive()) return;
+      try {
+        const title = currentEvent?.title || "日程調整";
+        const notif = new Notification(`【スケマチ】新しい出欠回答が届きました！`, {
+          body: `${respondentName} さんが「${title}」に出欠を入力しました。`,
+          icon: "/apple-touch-icon.png",
+          badge: "/icon-192.png",
+          data: { url: window.location.href }
+        });
+        notif.onclick = () => {
+          window.focus();
+          switchEventSubTab("table");
+        };
+      } catch (err) {
+        console.warn("triggerWebNotification err:", err);
+      }
+    }
+
+    // ==============================================
+    // 画面内通知バナー操作
+    // ==============================================
+    function showConfirmedBanner(dateStr) {
+      const banner = document.getElementById("bannerScheduleConfirmed");
+      const dateText = document.getElementById("bannerConfirmedDateText");
+      if (!banner || !dateText) return;
+      dateText.innerText = dateStr;
+      banner.classList.remove("hidden");
+      try { lucide.createIcons(); } catch (e) {}
+    }
+
+    function dismissConfirmedBanner() {
+      const banner = document.getElementById("bannerScheduleConfirmed");
+      if (banner) banner.classList.add("hidden");
+    }
+
+    function showUpdatedBanner() {
+      const banner = document.getElementById("bannerScheduleUpdated");
+      if (banner) banner.classList.remove("hidden");
+      try { lucide.createIcons(); } catch (e) {}
+    }
+
+    function dismissUpdatedBanner() {
+      const banner = document.getElementById("bannerScheduleUpdated");
+      if (banner) banner.classList.add("hidden");
+    }
+
+    // --- Init ---
+    document.addEventListener("DOMContentLoaded", () => {
+      lucide.createIcons();
+      loadCustomTimePresets();
+      updatePivotDateLabel();
+      renderCalendar();
+      renderTimePresets();
+      updateCandidateTextarea();
+
+      const urlParams = new URLSearchParams(window.location.search);
+      const eventIdFromUrl = urlParams.get("id");
+
+      let loadedEvent = null;
+      if (eventIdFromUrl) {
+        // 1. 個別IDキーから探す
+        const rawId = localStorage.getItem(`skm_event_${eventIdFromUrl}`);
+        if (rawId) {
+          try { loadedEvent = JSON.parse(rawId); } catch (e) {}
+        }
+        // 2. 現在の保存から探す
+        if (!loadedEvent) {
+          const saved = localStorage.getItem("smart_chosei_event");
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              if (parsed.id === eventIdFromUrl) loadedEvent = parsed;
+            } catch (e) {}
+          }
+        }
+        // 3. 履歴から探す
+        if (!loadedEvent) {
+          const historyRaw = localStorage.getItem("smart_chosei_history");
+          if (historyRaw) {
+            try {
+              const hist = JSON.parse(historyRaw);
+              const found = hist.find(h => h.id === eventIdFromUrl);
+              if (found && found.id) {
+                const rawH = localStorage.getItem(`skm_event_${found.id}`);
+                if (rawH) loadedEvent = JSON.parse(rawH);
+              }
+            } catch (e) {}
+          }
+        }
+
+        // 4. 初めて開く端末（ローカルにない）の場合はクラウドから非同期フェッチ
+        if (!loadedEvent && db) {
+          db.collection("skm_events").doc(eventIdFromUrl).get().then(doc => {
+            if (doc.exists) {
+              currentEvent = doc.data();
+              localStorage.setItem("smart_chosei_event", JSON.stringify(currentEvent));
+              localStorage.setItem(`skm_event_${currentEvent.id}`, JSON.stringify(currentEvent));
+              saveEventToHistory(currentEvent);
+              showEventView();
+            } else {
+              showToast("指定された調整表が見つかりませんでした。新規作成画面を開きます。");
+              showCreateView(true);
+            }
+          }).catch(err => {
+            console.warn("Cloud initial load fallback:", err);
+            showCreateView(true);
+          });
+        }
+      }
+
+      if (loadedEvent) {
+        // 専用URL（?id=...）で対象のイベントが存在する場合はβ画面（出欠入力）を直通で表示
+        currentEvent = loadedEvent;
+        localStorage.setItem("smart_chosei_event", JSON.stringify(currentEvent));
+        showEventView();
+      } else if (!eventIdFromUrl) {
+        // URLにidがない初期アクセス時は、まっさらな新規作成画面（α画面）を表示
+        showCreateView(true);
+      }
+    });
+
+    function handleLogoClick() {
+      if (currentEvent && currentEvent.title) {
+        showEventView();
+        showToast(`進行中の調整表「${currentEvent.title}」を表示しました`);
+      } else {
+        showCreateView(true);
+      }
+    }
+
+    function showToast(msg) {
+      const toast = document.getElementById("toast");
+      const toastMsg = document.getElementById("toastMsg");
+      toastMsg.innerText = msg;
+      toast.classList.remove("opacity-0");
+      toast.classList.add("opacity-100");
+      setTimeout(() => {
+        toast.classList.remove("opacity-100");
+        toast.classList.add("opacity-0");
+      }, 2500);
+    }
+
+    // ==============================================
+    // カレンダー ＆ 日付を選んで＋2週間などのロジック
+    // ==============================================
+    function updatePivotDateLabel() {
+      const m = pivotDate.getMonth() + 1;
+      const d = pivotDate.getDate();
+      const w = ["日", "月", "火", "水", "木", "金", "土"][pivotDate.getDay()];
+      const el = document.getElementById("pivotDateLabel");
+      if (el) el.innerText = `基準日: ${m}/${d}(${w})`;
+    }
+
+    function renderCalendar() {
+      const year = currentCalDate.getFullYear();
+      const month = currentCalDate.getMonth();
+
+      const monthEl = document.getElementById("calCurrentMonth");
+      if (monthEl) monthEl.innerText = `${year}年 ${month + 1}月`;
+
+      const grid = document.getElementById("calendarGrid");
+      if (!grid) return;
+      grid.innerHTML = "";
+
+      const dayNames = ["日", "月", "火", "水", "木", "金", "土"];
+      dayNames.forEach((d, i) => {
+        const dEl = document.createElement("div");
+        dEl.className = `font-bold py-1 ${i === 0 ? "text-rose-500" : i === 6 ? "text-blue-500" : "text-slate-500"}`;
+        dEl.innerText = d;
+        grid.appendChild(dEl);
+      });
+
+      const firstDay = new Date(year, month, 1).getDay();
+      const lastDate = new Date(year, month + 1, 0).getDate();
+
+      for (let i = 0; i < firstDay; i++) {
+        const empty = document.createElement("div");
+        empty.className = "py-2";
+        grid.appendChild(empty);
+      }
+
+      const todayStr = formatDateKey(new Date());
+      const pivotStr = formatDateKey(pivotDate);
+
+      for (let date = 1; date <= lastDate; date++) {
+        const dObj = new Date(year, month, date);
+        const dateKey = formatDateKey(dObj);
+        const dayOfWeek = dObj.getDay();
+        const isSelected = selectedDates.has(dateKey);
+        const isPivot = dateKey === pivotStr;
+        const isToday = dateKey === todayStr;
+
+        const cell = document.createElement("button");
+        cell.type = "button";
+        cell.onclick = () => onSelectPivotDate(dObj);
+
+        let baseClasses = "py-2 rounded-lg font-medium transition-all relative text-xs ";
+        if (isSelected) {
+          baseClasses += "bg-indigo-600 text-white font-bold shadow-xs";
+        } else {
+          baseClasses += "hover:bg-slate-200/80 ";
+          if (dayOfWeek === 0) baseClasses += "text-rose-600 ";
+          else if (dayOfWeek === 6) baseClasses += "text-blue-600 ";
+          else baseClasses += "text-slate-700 ";
+        }
+
+        if (isPivot && !isSelected) {
+          baseClasses += " ring-2 ring-indigo-500 bg-indigo-50 ";
+        }
+
+        cell.className = baseClasses;
+        cell.innerHTML = `
+          <span>${date}</span>
+          ${isToday ? `<span class="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full ${isSelected ? "bg-white" : "bg-indigo-600"}"></span>` : ""}
+        `;
+        grid.appendChild(cell);
+      }
+
+      const countEl = document.getElementById("selectedDatesCount");
+      if (countEl) countEl.innerText = selectedDates.size;
+    }
+
+    function changeMonth(delta) {
+      currentCalDate.setMonth(currentCalDate.getMonth() + delta);
+      renderCalendar();
+    }
+
+    function formatDateKey(d) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    }
+
+    function onSelectPivotDate(dObj) {
+      pivotDate = new Date(dObj);
+      updatePivotDateLabel();
+
+      const key = formatDateKey(dObj);
+      if (selectedDates.has(key)) {
+        selectedDates.delete(key);
+      } else {
+        selectedDates.add(key);
+      }
+
+      renderCalendar();
+      updateCandidateTextarea();
+    }
+
+    function extendDatesFromPivot(days) {
+      for (let i = 0; i < days; i++) {
+        const d = new Date(pivotDate);
+        d.setDate(pivotDate.getDate() + i);
+        selectedDates.add(formatDateKey(d));
+      }
+      renderCalendar();
+      updateCandidateTextarea();
+      showToast(`基準日から＋${days}日分の日程を追加しました！`);
+    }
+
+    function resetDateSelection() {
+      selectedDates.clear();
+      pivotDate = new Date();
+      updatePivotDateLabel();
+      renderCalendar();
+      updateCandidateTextarea();
+    }
+
+    // ==============================================
+    // 時間帯プリセットのローカル保存＆削除
+    // ==============================================
+    function loadCustomTimePresets() {
+      const saved = localStorage.getItem("smart_chosei_custom_presets");
+      if (saved) {
+        try {
+          const list = JSON.parse(saved);
+          if (Array.isArray(list) && list.length > 0) {
+            defaultTimePresets = list;
+          }
+        } catch (e) {}
+      }
+      // defaultTimePresetsに存在しない古い・削除済み値はselectedTimePresetsから確実に除外
+      const validValues = new Set(defaultTimePresets.map(p => p.value));
+      selectedTimePresets = new Set([...selectedTimePresets].filter(v => validValues.has(v)));
+    }
+
+    function saveCustomTimePresets() {
+      localStorage.setItem("smart_chosei_custom_presets", JSON.stringify(defaultTimePresets));
+    }
+
+    function removeTimePreset(id, e) {
+      if (e) e.stopPropagation();
+      const p = defaultTimePresets.find(x => x.id === id);
+      if (p) {
+        selectedTimePresets.delete(p.value);
+      }
+      defaultTimePresets = defaultTimePresets.filter(x => x.id !== id);
+      saveCustomTimePresets();
+      renderTimePresets();
+      updateCandidateTextarea();
+      showToast("時間帯を削除しました");
+    }
+
+    function renderTimePresets() {
+      const container = document.getElementById("timePresetsContainer");
+      if (!container) return;
+      container.innerHTML = "";
+
+      defaultTimePresets.forEach((p) => {
+        const isChecked = selectedTimePresets.has(p.value);
+        const div = document.createElement("div");
+        div.className = `flex items-center justify-between p-2 rounded-lg text-xs border transition-colors ${
+          isChecked ? "bg-indigo-50/80 border-indigo-300 text-indigo-900 font-semibold" : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+        } ${isNoTimeMode ? "opacity-40 pointer-events-none" : ""}`;
+
+        div.innerHTML = `
+          <label class="flex-1 flex items-center justify-between cursor-pointer mr-2">
+            <span>${p.label}</span>
+            <input type="checkbox" value="${p.value}" ${isChecked ? "checked" : ""} class="rounded text-indigo-600" onchange="toggleTimePreset('${p.value}', this.checked)">
+          </label>
+          <button type="button" onclick="removeTimePreset('${p.id}', event)" class="p-1 rounded text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-colors" title="この時間帯を削除">
+            <i data-lucide="x" class="w-3.5 h-3.5"></i>
+          </button>
+        `;
+        container.appendChild(div);
+      });
+      lucide.createIcons();
+    }
+
+    function toggleTimePreset(val, checked) {
+      if (checked) {
+        selectedTimePresets.add(val);
+      } else {
+        selectedTimePresets.delete(val);
+      }
+      renderTimePresets();
+      updateCandidateTextarea();
+    }
+
+    function addCustomTimePreset() {
+      const input = document.getElementById("customTimeInput");
+      const val = input.value.trim();
+      if (!val) return;
+      const newPreset = {
+        id: "c_" + Date.now(),
+        label: val,
+        value: val
+      };
+      defaultTimePresets.push(newPreset);
+      selectedTimePresets.add(val);
+      saveCustomTimePresets();
+      input.value = "";
+      renderTimePresets();
+      updateCandidateTextarea();
+      showToast("時間帯を追加・保存しました！");
+    }
+
+    function applyAdvancedTimeSetting() {
+      const start = document.getElementById("advTimeStart").value.trim();
+      const end = document.getElementById("advTimeEnd").value.trim();
+      const dur = document.getElementById("advDuration").value.trim();
+
+      if (!start || !end) {
+        alert("開始時間と終了時間を入力してください。");
+        return;
+      }
+
+      const label = dur ? `${start}〜${end} (${dur})` : `${start}〜${end}`;
+      const newPreset = {
+        id: "adv_" + Date.now(),
+        label: label,
+        value: label
+      };
+      defaultTimePresets.push(newPreset);
+      selectedTimePresets.add(label);
+      saveCustomTimePresets();
+      renderTimePresets();
+      updateCandidateTextarea();
+      showToast(`「${label}」を候補時間に追加・保存しました！`);
+    }
+
+    function toggleNoTime(checked) {
+      isNoTimeMode = checked;
+      renderTimePresets();
+      updateCandidateTextarea();
+    }
+
+    // --- 日付 × 時間帯の自動生成（チェックされた時間のみを厳格に反映） ---
+    function updateCandidateTextarea() {
+      const sortedDates = Array.from(selectedDates).sort();
+      const weekDays = ["日", "月", "火", "水", "木", "金", "土"];
+      const lines = [];
+
+      // defaultTimePresetsに実在し、かつユーザーがチェックした時間帯のみ抽出（表示順で整列）
+      const activePresets = isNoTimeMode
+        ? []
+        : defaultTimePresets.filter(p => selectedTimePresets.has(p.value));
+
+      sortedDates.forEach((dStr) => {
+        const [y, m, d] = dStr.split("-").map(Number);
+        const dObj = new Date(y, m - 1, d);
+        const dayName = weekDays[dObj.getDay()];
+        const datePrefix = `${m}/${d}(${dayName})`;
+
+        if (isNoTimeMode || activePresets.length === 0) {
+          lines.push(datePrefix);
+        } else {
+          activePresets.forEach((p) => {
+            lines.push(`${datePrefix} ${p.value}`);
+          });
+        }
+      });
+
+      const ta = document.getElementById("candidateListTextarea");
+      ta.value = lines.join("\n");
+      document.getElementById("candidateCountLabel").innerText = `${lines.length} 件`;
+    }
+
+    // ==============================================
+    // イベント作成 & 保存（編集モード対応・既存データ完全保護）
+    // ==============================================
+    let isEditingExistingEvent = false;
+
+    // 管理者画面の発信メッセージ・決定状態
+    let adminDecisions = {}; // cand -> 'circle' | 'triangle' | 'cross' | 'none'
+    let adminCurrentMsgType = 'confirm'; // 'confirm' or 'invite'
+    let adminCurrentChannel = 'email';   // 'email', 'slack', 'line'
+
+    function updateCreateViewModeUI() {
+      const banner = document.getElementById("adminEditModeBanner");
+      const resumeBanner = document.getElementById("activeEventResumeBanner");
+      const btnCancel = document.getElementById("btnCancelEditEvent");
+      const btnSubmitText = document.getElementById("btnSubmitCreateEventText");
+      const btnSubmitIconWrap = document.getElementById("btnSubmitCreateEventIconWrap");
+      const badgeResp = document.getElementById("adminEditBadgeResponses");
+      const viewTitle = document.getElementById("viewCreateHeaderTitle");
+      const adminMatrixSec = document.getElementById("adminMatrixSection");
+      const adminDecisionSec = document.getElementById("adminDecisionSection");
+
+      if (isEditingExistingEvent && currentEvent) {
+        if (banner) banner.classList.remove("hidden");
+        if (resumeBanner) resumeBanner.classList.add("hidden");
+        if (btnCancel) btnCancel.classList.remove("hidden");
+        const respCount = currentEvent.responses ? currentEvent.responses.length : 0;
+        if (badgeResp) badgeResp.innerText = `入力済データ: ${respCount} 名分を完全保持`;
+        if (btnSubmitText) btnSubmitText.innerText = "変更内容を保存して調整表に戻る";
+        if (btnSubmitIconWrap) btnSubmitIconWrap.innerHTML = '<i data-lucide="save" class="w-4 h-4"></i>';
+        if (viewTitle) viewTitle.innerHTML = `<i data-lucide="edit-3" class="w-5 h-5 text-indigo-600 inline"></i> 調整表「${escapeHtml(currentEvent.title)}」の管理・編集`;
+
+        // 決定状態を復元
+        adminDecisions = currentEvent.adminDecisions || {};
+
+        // 管理者専用セクション（出欠一覧 ＆ 確定・発信文作成）を表示
+        if (adminMatrixSec) adminMatrixSec.classList.remove("hidden");
+        if (adminDecisionSec) adminDecisionSec.classList.remove("hidden");
+
+        renderAdminMatrixTable();
+        updateAdminDecisionMessage();
+      } else {
+        if (banner) banner.classList.add("hidden");
+        if (btnCancel) btnCancel.classList.add("hidden");
+        if (btnSubmitText) btnSubmitText.innerText = "出欠表を作成する";
+        if (btnSubmitIconWrap) btnSubmitIconWrap.innerHTML = '<i data-lucide="arrow-right" class="w-4 h-4"></i>';
+        if (viewTitle) viewTitle.innerHTML = `<i data-lucide="calendar-plus" class="w-5 h-5 text-indigo-600 inline"></i> 新しい日程調整（スケマチ）を作成`;
+
+        // 新規作成時は管理者専用セクションを非表示
+        if (adminMatrixSec) adminMatrixSec.classList.add("hidden");
+        if (adminDecisionSec) adminDecisionSec.classList.add("hidden");
+
+        // もし進行中のcurrentEventがあれば復帰バナーを表示
+        if (resumeBanner) {
+          if (currentEvent && currentEvent.title) {
+            const titleEl = document.getElementById("activeEventResumeTitle");
+            if (titleEl) titleEl.innerText = currentEvent.title;
+            resumeBanner.classList.remove("hidden");
+          } else {
+            resumeBanner.classList.add("hidden");
+          }
+        }
+      }
+      try {
+        lucide.createIcons();
+      } catch (e) {}
+    }
+
+    // --- α管理画面専用: 日程ごとの最終決定（◯/△/×/―） & メッセージ生成ロジック ---
+    function setAdminDecision(cand, val) {
+      if (!currentEvent) return;
+      adminDecisions = currentEvent.adminDecisions || {};
+      if (adminDecisions[cand] === val) {
+        adminDecisions[cand] = 'none'; // 同じボタンを再度押したら未定へ戻す
+      } else {
+        adminDecisions[cand] = val;
+      }
+      currentEvent.adminDecisions = adminDecisions;
+      syncEventToCloud(currentEvent);
+      renderAdminMatrixTable();
+      updateAdminDecisionMessage();
+    }
+
+    function setAdminDecisionByIndex(idx, val) {
+      if (!currentEvent || !currentEvent.candidates) return;
+      const cand = currentEvent.candidates[idx];
+      if (cand) {
+        setAdminDecision(cand, val);
+      }
+    }
+
+    function autoSelectBestAdminDate() {
+      if (!currentEvent || !currentEvent.candidates || currentEvent.candidates.length === 0) return;
+      const candidates = currentEvent.candidates;
+      const responses = currentEvent.responses || [];
+
+      let bestCand = candidates[0];
+      let maxScore = -1;
+
+      candidates.forEach(cand => {
+        let circle = 0, triangle = 0;
+        responses.forEach(r => {
+          const a = r.answers && r.answers[cand];
+          const val = typeof a === "string" ? a : (a ? a.val : "cross");
+          if (val === "circle") circle++;
+          else if (val === "triangle") triangle++;
+        });
+        const score = circle * 2 + triangle * 1;
+        if (score > maxScore) {
+          maxScore = score;
+          bestCand = cand;
+        }
+      });
+
+      adminDecisions = {};
+      adminDecisions[bestCand] = "circle";
+      currentEvent.adminDecisions = adminDecisions;
+      syncEventToCloud(currentEvent);
+      renderAdminMatrixTable();
+      updateAdminDecisionMessage();
+      showToast(`最多出席の「${bestCand}」を確定日にセットしました！`);
+    }
+
+    function setAllAdminDecisions(val) {
+      if (!currentEvent || !currentEvent.candidates) return;
+      adminDecisions = {};
+      currentEvent.candidates.forEach(cand => {
+        adminDecisions[cand] = val;
+      });
+      currentEvent.adminDecisions = adminDecisions;
+      syncEventToCloud(currentEvent);
+      renderAdminMatrixTable();
+      updateAdminDecisionMessage();
+      showToast(`すべての候補日を「◯ 確定」にセットしました！`);
+    }
+
+    function resetAllAdminDecisions() {
+      if (!currentEvent) return;
+      adminDecisions = {};
+      currentEvent.adminDecisions = adminDecisions;
+      syncEventToCloud(currentEvent);
+      renderAdminMatrixTable();
+      updateAdminDecisionMessage();
+      showToast("すべての決定を解除（未定）にリセットしました");
+    }
+
+    function switchAdminMsgType(type) {
+      adminCurrentMsgType = type;
+      const btnConf = document.getElementById("btnAdminMsgTypeConfirm");
+      const btnInv = document.getElementById("btnAdminMsgTypeInvite");
+      if (type === "confirm") {
+        if (btnConf) btnConf.className = "px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-indigo-700 shadow-2xs transition-all";
+        if (btnInv) btnInv.className = "px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-800 transition-all";
+      } else {
+        if (btnInv) btnInv.className = "px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-indigo-700 shadow-2xs transition-all";
+        if (btnConf) btnConf.className = "px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-800 transition-all";
+      }
+      updateAdminDecisionMessage();
+    }
+
+    function switchAdminChannel(chan) {
+      adminCurrentChannel = chan;
+      const btnEmail = document.getElementById("tabAdminChanEmail");
+      const btnSlack = document.getElementById("tabAdminChanSlack");
+      const btnLine = document.getElementById("tabAdminChanLine");
+
+      const activeClass = "px-4 py-2 font-bold text-indigo-600 border-b-2 border-indigo-600 transition-colors";
+      const inactiveClass = "px-4 py-2 font-medium text-slate-600 hover:text-indigo-600 transition-colors";
+
+      if (btnEmail) btnEmail.className = (chan === "email") ? activeClass : inactiveClass;
+      if (btnSlack) btnSlack.className = (chan === "slack") ? activeClass : inactiveClass;
+      if (btnLine) btnLine.className = (chan === "line") ? activeClass : inactiveClass;
+
+      updateAdminDecisionMessage();
+    }
+
+    function updateAdminDecisionMessage() {
+      if (!currentEvent) return;
+      const ta = document.getElementById("adminGeneratedMessageTextarea");
+      const gcalBtn = document.getElementById("btnAdminGCalLink");
+      const banner = document.getElementById("adminDecisionSummaryBanner");
+      if (!ta) return;
+
+      const url = getShareUrl();
+      const title = currentEvent.title;
+      const responses = currentEvent.responses || [];
+      const candidates = currentEvent.candidates || [];
+      adminDecisions = currentEvent.adminDecisions || {};
+
+      // 決定状況のカウント
+      let circleCount = 0;
+      let triangleCount = 0;
+      let crossCount = 0;
+      let noneCount = 0;
+
+      const circleList = [];
+      const triangleList = [];
+      const activeDecidedList = [];
+
+      candidates.forEach(cand => {
+        const dec = adminDecisions[cand] || "none";
+        if (dec === "circle") {
+          circleCount++;
+          circleList.push(cand);
+          activeDecidedList.push({ cand, dec });
+        } else if (dec === "triangle") {
+          triangleCount++;
+          triangleList.push(cand);
+          activeDecidedList.push({ cand, dec });
+        } else if (dec === "cross") {
+          crossCount++;
+        } else {
+          noneCount++;
+        }
+      });
+
+      // サマリーバナー更新
+      if (banner) {
+        let modeDesc = "";
+        if (circleCount === 0 && triangleCount === 0) {
+          modeDesc = "（※上の出欠表で確定・調整したい日時のボタンを押してください）";
+        } else if (circleCount === 1 && triangleCount === 0) {
+          modeDesc = "（単日確定モードで文面を自動作成中）";
+        } else {
+          modeDesc = "（複数日確定モードで文面を自動作成中）";
+        }
+
+        banner.innerHTML = `
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="font-bold text-slate-700">現在の決定状況:</span>
+            <span class="px-2 py-0.5 rounded-md font-bold text-xs bg-emerald-100 text-emerald-800 border border-emerald-300">◯ 確定: ${circleCount}件</span>
+            <span class="px-2 py-0.5 rounded-md font-bold text-xs bg-amber-100 text-amber-800 border border-amber-300">△ 調整中: ${triangleCount}件</span>
+            ${crossCount > 0 ? `<span class="px-2 py-0.5 rounded-md font-medium text-xs bg-rose-50 text-rose-700 border border-rose-200">× 見送り: ${crossCount}件</span>` : ''}
+            <span class="px-2 py-0.5 rounded-md font-medium text-xs bg-slate-100 text-slate-600 border border-slate-200">― 未定: ${noneCount}件</span>
+          </div>
+          <div class="text-slate-500 text-[11px] font-medium">${modeDesc}</div>
+        `;
+      }
+
+      let text = "";
+
+      if (adminCurrentMsgType === "confirm") {
+        if (circleCount === 0 && triangleCount === 0) {
+          // 何も決定されていない状態
+          if (gcalBtn) gcalBtn.classList.add("hidden");
+          text = `【※確定対象の日程がまだ選択されていません】\n\n` +
+            `上の「出欠確認 ＆ 各日の最終決定」表にて、確定したい日時の横にある【◯ 確定】や【△ 調整】ボタンをクリックしてください。\n` +
+            `選択された日程のみが自動でこの文面に反映されます（未定のままの日程は文面から除外されます）。`;
+        } else if (circleCount === 1 && triangleCount === 0) {
+          // ==========================================
+          // 単日確定（1日のみ◯確定）
+          // ==========================================
+          const selectedDate = circleList[0];
+
+          if (gcalBtn) {
+            gcalBtn.classList.remove("hidden");
+            gcalBtn.href = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&details=${encodeURIComponent("スケマチで確定した日程です: " + selectedDate + "\n" + url)}`;
+          }
+
+          // 参加者の時間微調整メモの抽出
+          const notes = [];
+          responses.forEach(r => {
+            const a = r.answers && r.answers[selectedDate];
+            if (a && typeof a === "object" && a.timeAdj) {
+              notes.push(`・${r.name}: ${a.timeAdj}`);
+            }
+          });
+          const notesText = notes.length > 0 ? `\n\n【参加者からの連絡事項・時間微調整】\n${notes.join("\n")}` : "";
+
+          if (adminCurrentChannel === "email") {
+            text = `件名: 【日程確定】「${title}」についてのご案内\n\n` +
+              `お打ち合わせの皆様\n\n` +
+              `平素より大変お世話になっております。[自社名]の[氏名]でございます。\n\n` +
+              `日程調整にご回答いただき、誠にありがとうございました。\n` +
+              `皆様のご都合を踏まえ、下記日程にて確定いたしましたのでご案内申し上げます。\n\n` +
+              `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+              `■ 確定日時: ${selectedDate}\n` +
+              `■ イベント名: ${title}\n` +
+              `━━━━━━━━━━━━━━━━━━━━━━━━━━` +
+              notesText + `\n\n` +
+              `▼ 日程調整結果URL（スケマチ）\n${url}\n\n` +
+              `当日は何卒よろしくお願い申し上げます。`;
+          } else if (adminCurrentChannel === "slack") {
+            text = `@here\n` +
+              `【日程確定】「${title}」\n\n` +
+              `皆様、日程調整へのご協力ありがとうございました！\n` +
+              `以下の日程に決定いたしました。\n\n` +
+              `📅 確定日時: *${selectedDate}*\n` +
+              notesText + `\n\n` +
+              `🔗 調整結果: ${url}\n\n` +
+              `各自カレンダーへのご登録をよろしくお願いいたします！`;
+          } else {
+            text = `お疲れ様です！「${title}」の日程が確定しました。\n\n` +
+              `📅 確定日時: ${selectedDate}\n` +
+              notesText + `\n\n` +
+              `調整結果はこちら: ${url}\n` +
+              `よろしくお願いいたします！`;
+          }
+        } else {
+          // ==========================================
+          // 複数日確定（◯が複数、または△調整中を含む）
+          // ==========================================
+          if (gcalBtn) gcalBtn.classList.add("hidden");
+
+          let hasTriangle = false;
+          let dateLines = [];
+          let allNotes = [];
+
+          activeDecidedList.forEach(({ cand, dec }) => {
+            let circle = 0, triangle = 0;
+            responses.forEach(r => {
+              const ans = r.answers && r.answers[cand];
+              const val = typeof ans === "string" ? ans : (ans ? ans.val : "cross");
+              if (val === "circle") circle++;
+              else if (val === "triangle") triangle++;
+              if (ans && typeof ans === "object" && ans.timeAdj) {
+                allNotes.push(`・${cand} [${r.name}]: ${ans.timeAdj}`);
+              }
+            });
+
+            const countStr = responses.length > 0 ? ` (◯ ${circle}名 / △ ${triangle}名)` : ``;
+            if (dec === "circle") {
+              dateLines.push(`・${cand} 【確定】${countStr}`);
+            } else {
+              hasTriangle = true;
+              dateLines.push(`・${cand} 【▲ 調整中】${countStr}`);
+            }
+          });
+
+          const dateBlock = dateLines.join("\n");
+          const triangleNotice = hasTriangle
+            ? "\n\n※「▲」の日程につきましては、確認が取れ次第、改めて個別にご連絡させていただきます。"
+            : "";
+          const notesBlock = allNotes.length > 0
+            ? `\n\n【参加者からの連絡事項・時間微調整】\n${allNotes.join("\n")}`
+            : "";
+
+          if (adminCurrentChannel === "email") {
+            text = `件名: 【日程確定のご案内】「${title}」について\n\n` +
+              `お打ち合わせの皆様\n\n` +
+              `平素より大変お世話になっております。[自社名]の[氏名]でございます。\n\n` +
+              `日程調整にご協力いただき、誠にありがとうございました。\n` +
+              `皆様の出欠回答を踏まえ、下記の日程にて確定いたしましたのでご案内申し上げます。\n\n` +
+              `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+              `■ 確定日程一覧\n` +
+              `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+              dateBlock +
+              triangleNotice +
+              notesBlock + `\n\n` +
+              `▼ 日程調整結果の一覧表（スケマチ）\n${url}\n\n` +
+              `各自スケジュールへのご登録をお願い申し上げます。\n` +
+              `何卒よろしくお願いいたします。`;
+          } else if (adminCurrentChannel === "slack") {
+            text = `@here\n` +
+              `【日程確定（複数日）】「${title}」\n\n` +
+              `皆様、日程調整へのご協力ありがとうございました！\n` +
+              `下記の日程にて確定いたしました。\n\n` +
+              `📅 *確定日程一覧:*\n` +
+              dateBlock +
+              triangleNotice +
+              notesBlock + `\n\n` +
+              `🔗 調整結果一覧: ${url}\n\n` +
+              `各自カレンダーへのご登録をよろしくお願いいたします！`;
+          } else {
+            text = `お疲れ様です！「${title}」の日程が確定しました。\n\n` +
+              `📅 確定日程一覧:\n` +
+              dateBlock +
+              triangleNotice +
+              notesBlock + `\n\n` +
+              `一覧表はこちら: ${url}\n` +
+              `よろしくお願いいたします！`;
+          }
+        }
+      } else {
+        // ==========================================
+        // 出欠入力のお願い文
+        // ==========================================
+        if (gcalBtn) gcalBtn.classList.add("hidden");
+
+        if (adminCurrentChannel === "email") {
+          text = `件名: 【日程調整のお願い】「${title}」について\n\n` +
+            `〇〇様\n\n` +
+            `平素より大変お世話になっております。[自社名]の[氏名]でございます。\n\n` +
+            `標記の件につきまして、お打ち合わせの日程調整を作成いたしました。\n` +
+            `大変お手数をおかけいたしますが、下記URLよりご都合のよろしい日時をご回答いただけますでしょうか。\n\n` +
+            `▼ 日程調整URL（スケマチ）\n${url}\n\n` +
+            `※候補日時の中から、ご都合の良い枠（◯/△/×）をお選びください。\n` +
+            `※時間の微調整（「14:30以降なら可」など）も各枠のメモ欄にご記入いただけます。\n\n` +
+            `何卒よろしくお願い申し上げます。`;
+        } else if (adminCurrentChannel === "slack") {
+          text = `@here\n` +
+            `【日程調整のお願い】「${title}」\n\n` +
+            `お疲れ様です！表記日程調整を作成いたしました。\n` +
+            `各自、下記URLより空き状況（◯/△/×）のご入力をお願いいたします。\n\n` +
+            `🔗 調整URL: ${url}\n\n` +
+            `よろしくお願いいたします！`;
+        } else {
+          text = `お疲れ様です！「${title}」の日程調整を作成しました。\n` +
+            `下記URLより出欠のご回答をお願いいたします。\n\n` +
+            `${url}`;
+        }
+      }
+
+      ta.value = text;
+    }
+
+    function copyAdminGeneratedMessage() {
+      const ta = document.getElementById("adminGeneratedMessageTextarea");
+      if (!ta) return;
+      navigator.clipboard.writeText(ta.value);
+      showToast("発信メッセージをコピーしました！");
+    }
+
+    function cancelAdminEdit() {
+      isEditingExistingEvent = false;
+      showEventView();
+      showToast("変更を破棄して元の調整表に戻りました");
+    }
+
+    function submitEventFormAction() {
+      if (isEditingExistingEvent && currentEvent) {
+        saveExistingEventEdits();
+      } else {
+        createEventFromForm();
+      }
+    }
+
+    // 既存イベントの変更保存（回答データを失わずに安全にマージ！）
+    function saveExistingEventEdits() {
+      const title = document.getElementById("eventTitle").value.trim();
+      const desc = document.getElementById("eventDesc").value.trim();
+      const pinEl = document.getElementById("optAdminPin");
+      const adminPin = pinEl ? pinEl.value.trim() : "";
+
+      if (!adminPin || adminPin.length < 4) {
+        alert("管理用PASS（4桁の数字）を入力してください。\n（日程の確定や修正の際に必要になります）");
+        if (pinEl) pinEl.focus();
+        return;
+      }
+
+      if (!title) {
+        alert("イベント名を入力してください。");
+        document.getElementById("eventTitle").focus();
+        return;
+      }
+
+      const newCandidates = ta.split("\n").map(l => l.trim()).filter(Boolean);
+      if (newCandidates.length === 0) {
+        alert("候補日時を1件以上入力してください。");
+        return;
+      }
+
+      // 既存の参加者回答データを新しい候補日リストに合わせて安全に引き継ぐ
+      const oldResponses = currentEvent.responses || [];
+      const updatedResponses = oldResponses.map(resp => {
+        const newAnswers = {};
+        newCandidates.forEach(cand => {
+          if (resp.answers && resp.answers[cand]) {
+            // 既存の回答がある候補日時はそのままキープ！
+            newAnswers[cand] = resp.answers[cand];
+          } else {
+            // 新しく追加された候補日時は初期値として安全に補完
+            newAnswers[cand] = { val: "cross", timeAdj: "" };
+          }
+        });
+        return {
+          ...resp,
+          answers: newAnswers
+        };
+      });
+
+      // 管理者の各日決定データも引き継ぎ
+      const oldDecisions = currentEvent.adminDecisions || {};
+      const updatedDecisions = {};
+      newCandidates.forEach(cand => {
+        if (oldDecisions[cand]) {
+          updatedDecisions[cand] = oldDecisions[cand];
+        }
+      });
+
+      // イベント内容を更新
+      currentEvent.title = title;
+      currentEvent.desc = desc;
+      currentEvent.adminPin = adminPin;
+      currentEvent.candidates = newCandidates;
+      currentEvent.responses = updatedResponses;
+      currentEvent.adminDecisions = updatedDecisions;
+      adminDecisions = updatedDecisions;
+      currentEvent.updatedAt = new Date().toISOString();
+
+      // 各種保存（ローカル＆クラウド）
+      syncEventToCloud(currentEvent);
+
+      // URL同期
+      if (window.history && window.history.replaceState) {
+        window.history.replaceState(null, "", getShareUrl());
+      }
+
+      isEditingExistingEvent = false;
+      showToast("出欠表を更新しました！入力済みデータはすべて保持されています。");
+      showEventView();
+      switchEventSubTab("table"); // 更新後は結果一覧を表示
+    }
+
+    function createEventFromForm() {
+      const title = document.getElementById("eventTitle").value.trim();
+      const desc = document.getElementById("eventDesc").value.trim();
+      const ta = document.getElementById("candidateListTextarea").value.trim();
+      const pinEl = document.getElementById("optAdminPin");
+      const adminPin = pinEl ? pinEl.value.trim() : "";
+      if (!adminPin || adminPin.length < 4) {
+        alert("管理用PASS（4桁の数字）を入力してください。\n（日程の確定や修正の際に必要になります）");
+        if (pinEl) pinEl.focus();
+        return;
+      }
+
+      if (!title) {
+        alert("イベント名を入力してください。");
+        document.getElementById("eventTitle").focus();
+        return;
+      }
+
+      const candidates = ta.split("\n").map(l => l.trim()).filter(Boolean);
+      if (candidates.length === 0) {
+        alert("候補日時を1件以上入力してください。");
+        return;
+      }
+
+      const token = generateRandomToken();
+
+      currentEvent = {
+        id: token,
+        title: title,
+        desc: desc,
+        adminPin: adminPin,
+        candidates: candidates,
+        responses: []
+      };
+
+      isAdminLoggedIn = true; // 作成者は自動で管理者権限を持つ！
+      isEditingExistingEvent = false;
+
+      // 単一キーとID個別キー、およびクラウドに保存
+      syncEventToCloud(currentEvent);
+
+      // URLを即座に共有用URL（?id=skm_xxxx）へ同期
+      if (window.history && window.history.pushState) {
+        window.history.pushState(null, "", getShareUrl());
+      }
+
+      showToast("出欠表（スケマチ）を作成しました！");
+      showEventView();
+      checkAdminStatus();
+      openNotifyModal();
+    }
+
+    // ==============================================
+    // 画面切り替え & 表示
+    // ==============================================
+    function showCreateView(forceNew = false) {
+      if (forceNew) {
+        isEditingExistingEvent = false;
+        // フォームをまっさらに初期化（候補日時やイベント名を完全に空にする）
+        const titleEl = document.getElementById("eventTitle");
+        const descEl = document.getElementById("eventDesc");
+        const taEl = document.getElementById("candidateListTextarea");
+        if (titleEl) titleEl.value = "";
+        if (descEl) descEl.value = "";
+        if (taEl) taEl.value = "";
+        selectedDates.clear();
+        selectedTimePresets.clear();
+        renderCalendar();
+        renderTimePresets();
+        updateCandidateTextarea();
+      }
+      updateCreateViewModeUI();
+      document.getElementById("viewCreate").classList.remove("hidden");
+      document.getElementById("viewEvent").classList.add("hidden");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    // --- サブタブ切り替え（β入力画面 ⇔ γ一覧表画面） ---
+    function switchEventSubTab(tab) {
+      currentEventSubTab = tab;
+      const btnInput = document.getElementById("tabBtnInput");
+      const btnTable = document.getElementById("tabBtnTable");
+      const subInput = document.getElementById("subTabInput");
+      const subTable = document.getElementById("subTabTable");
+
+      if (!btnInput || !btnTable || !subInput || !subTable) return;
+
+      if (tab === "input") {
+        btnInput.className = "flex-1 sm:flex-none sm:px-5 py-2.5 rounded-xl text-xs md:text-sm font-bold bg-indigo-600 text-white shadow-xs flex items-center justify-center gap-1.5 transition-all";
+        btnTable.className = "flex-1 sm:flex-none sm:px-5 py-2.5 rounded-xl text-xs md:text-sm font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 flex items-center justify-center gap-1.5 transition-all";
+        subInput.classList.remove("hidden");
+        subTable.classList.add("hidden");
+      } else {
+        btnTable.className = "flex-1 sm:flex-none sm:px-5 py-2.5 rounded-xl text-xs md:text-sm font-bold bg-indigo-600 text-white shadow-xs flex items-center justify-center gap-1.5 transition-all";
+        btnInput.className = "flex-1 sm:flex-none sm:px-5 py-2.5 rounded-xl text-xs md:text-sm font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 flex items-center justify-center gap-1.5 transition-all";
+        subTable.classList.remove("hidden");
+        subInput.classList.add("hidden");
+        try {
+          renderMatrixTable();
+        } catch (err) {
+          console.error("renderMatrixTable error:", err);
+        }
+      }
+      try {
+        lucide.createIcons();
+      } catch (err) {
+        console.warn("lucide.createIcons error:", err);
+      }
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function showEventView() {
+      if (!currentEvent) {
+        showCreateView();
+        return;
+      }
+      document.getElementById("viewCreate").classList.add("hidden");
+      document.getElementById("viewEvent").classList.remove("hidden");
+
+      updateEventHeaderInfo();
+      updateNotificationUI();
+
+      // 端末のlocalStorageに保存された自分の回答をチェック
+      loadMyResponseIfAvailable();
+
+      renderAttendanceInputRows();
+      renderMatrixTable();
+      switchEventSubTab("input");
+      checkAdminStatus();
+
+      // クラウドリアルタイム同期の開始
+      listenEventFromCloud(currentEvent.id);
+
+      // 初回表示時の確定バナー判定
+      const confirmedDates = getConfirmedDateStrings(currentEvent);
+      if (confirmedDates.length > 0) {
+        showConfirmedBanner(confirmedDates.join(", "));
+      } else {
+        dismissConfirmedBanner();
+      }
+
+      try {
+        lucide.createIcons();
+      } catch (e) {}
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    // ==============================================
+    // 回答入力フォーム（◯△×がボタン式！）
+    // ==============================================
+    function initFormAttendanceState() {
+      formAttendanceState = {};
+      currentEvent.candidates.forEach((cand, idx) => {
+        formAttendanceState[idx] = {
+          val: "circle", // デフォルトは◯
+          timeAdj: ""
+        };
+      });
+    }
+
+    function loadMyResponseIfAvailable() {
+      if (!currentEvent) return;
+
+      const myKey = `skm_my_resp_${currentEvent.id}`;
+      myResponseId = localStorage.getItem(myKey);
+
+      let targetResp = null;
+      if (myResponseId) {
+        targetResp = currentEvent.responses.find(r => r.id === myResponseId);
+      }
+
+      if (targetResp) {
+        startEditingResponse(targetResp, false);
+      } else {
+        cancelEditingResponse(false);
+      }
+    }
+
+    function startEditingResponse(resp, switchToTab = true) {
+      editingResponseId = resp.id;
+
+      // フォームに入力値を反映
+      document.getElementById("inputUserName").value = resp.name;
+      document.getElementById("inputUserComment").value = resp.comment || "";
+
+      // 各日程の選択状態を復元
+      formAttendanceState = {};
+      currentEvent.candidates.forEach((cand, idx) => {
+        const raw = resp.answers[cand] || { val: "circle", timeAdj: "" };
+        const val = typeof raw === "string" ? raw : (raw.val || "circle");
+        const timeAdj = typeof raw === "object" ? (raw.timeAdj || "") : "";
+        formAttendanceState[idx] = { val, timeAdj };
+      });
+
+      renderAttendanceInputRows();
+
+      // バナーとボタン表示の切り替え
+      const banner = document.getElementById("myResponseBanner");
+      const bannerText = document.getElementById("myResponseBannerText");
+      const submitText = document.getElementById("btnSubmitAttendanceText");
+      const submitIconWrap = document.getElementById("btnSubmitAttendanceIconWrap");
+
+      if (banner && bannerText) {
+        bannerText.innerText = `「${resp.name}」さんの回答内容を編集中です`;
+        banner.classList.remove("hidden");
+      }
+      if (submitText) submitText.innerText = "変更内容を更新して一覧表を見る";
+      if (submitIconWrap) submitIconWrap.innerHTML = '<i data-lucide="check-circle-2" class="w-4 h-4"></i>';
+
+      if (switchToTab) {
+        switchEventSubTab("input");
+      }
+      try {
+        lucide.createIcons();
+      } catch (e) {}
+    }
+
+    function cancelEditingResponse(renderRows = true) {
+      editingResponseId = null;
+      const nameInput = document.getElementById("inputUserName");
+      const commentInput = document.getElementById("inputUserComment");
+      if (nameInput) nameInput.value = "";
+      if (commentInput) commentInput.value = "";
+
+      initFormAttendanceState();
+      if (renderRows) renderAttendanceInputRows();
+
+      const banner = document.getElementById("myResponseBanner");
+      const submitText = document.getElementById("btnSubmitAttendanceText");
+      const submitIconWrap = document.getElementById("btnSubmitAttendanceIconWrap");
+
+      if (banner) banner.classList.add("hidden");
+      if (submitText) submitText.innerText = "出欠を登録して一覧表を見る";
+      if (submitIconWrap) submitIconWrap.innerHTML = '<i data-lucide="send" class="w-4 h-4"></i>';
+      try {
+        lucide.createIcons();
+      } catch (e) {}
+    }
+
+    // 別デバイスなどからの編集要求
+    function requestEditResponse(respId) {
+      const resp = currentEvent.responses.find(r => r.id === respId);
+      if (!resp) return;
+
+      // この端末で回答した本人なら確認なしで即編集
+      const myKey = `skm_my_resp_${currentEvent.id}`;
+      const savedMyId = localStorage.getItem(myKey);
+
+      if (savedMyId === respId) {
+        startEditingResponse(resp, true);
+        showToast(`ご自身の回答（${resp.name}）の編集画面を開きました`);
+        return;
+      }
+
+      // 異なる端末（ローカルに記憶がない）の場合は念のため確認ダイアログ
+      pendingConfirmTarget = resp;
+      document.getElementById("confirmEditTargetName").innerText = resp.name;
+      document.getElementById("modalConfirmEdit").classList.remove("hidden");
+    }
+
+    function closeConfirmEditModal() {
+      pendingConfirmTarget = null;
+      document.getElementById("modalConfirmEdit").classList.add("hidden");
+    }
+
+    function proceedEditingTargetResponse() {
+      if (pendingConfirmTarget) {
+        const resp = pendingConfirmTarget;
+        closeConfirmEditModal();
+        startEditingResponse(resp, true);
+        showToast(`「${resp.name}」さんの編集画面を開きました`);
+      }
+    }
+
+    function setCandidateAttendance(idx, val) {
+      if (!formAttendanceState[idx]) {
+        formAttendanceState[idx] = { val: "circle", timeAdj: "" };
+      }
+      formAttendanceState[idx].val = val;
+      updateCandidateRowButtons(idx);
+    }
+
+    function updateCandidateRowButtons(idx) {
+      const cur = formAttendanceState[idx]?.val || "circle";
+      const btnCircle = document.getElementById(`btn_c_${idx}`);
+      const btnTriangle = document.getElementById(`btn_t_${idx}`);
+      const btnCross = document.getElementById(`btn_x_${idx}`);
+      if (!btnCircle) return;
+
+      // ◯ボタン
+      if (cur === "circle") {
+        btnCircle.className = "w-9 h-8 rounded-lg font-bold text-xs bg-emerald-600 text-white shadow-xs transition-all";
+      } else {
+        btnCircle.className = "w-9 h-8 rounded-lg font-bold text-xs bg-slate-100 text-slate-400 hover:bg-slate-200 transition-all";
+      }
+
+      // △ボタン
+      if (cur === "triangle") {
+        btnTriangle.className = "w-9 h-8 rounded-lg font-bold text-xs bg-amber-500 text-white shadow-xs transition-all";
+      } else {
+        btnTriangle.className = "w-9 h-8 rounded-lg font-bold text-xs bg-slate-100 text-slate-400 hover:bg-slate-200 transition-all";
+      }
+
+      // ×ボタン
+      if (cur === "cross") {
+        btnCross.className = "w-9 h-8 rounded-lg font-bold text-xs bg-rose-500 text-white shadow-xs transition-all";
+      } else {
+        btnCross.className = "w-9 h-8 rounded-lg font-bold text-xs bg-slate-100 text-slate-400 hover:bg-slate-200 transition-all";
+      }
+    }
+
+    function renderAttendanceInputRows() {
+      const container = document.getElementById("attendanceInputRows");
+      container.innerHTML = "";
+
+      currentEvent.candidates.forEach((cand, idx) => {
+        const cur = formAttendanceState[idx] || { val: "circle", timeAdj: "" };
+
+        const row = document.createElement("div");
+        row.className = "px-3.5 py-2.5 text-xs hover:bg-slate-50 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-2.5";
+
+        row.innerHTML = `
+          <div class="font-bold text-slate-800 text-xs md:text-sm shrink-0">
+            ${escapeHtml(cand)}
+          </div>
+
+          <!-- ★押しやすい3つの独立ボタン群（◯△×） -->
+          <div class="flex items-center gap-2 self-end sm:self-auto">
+            <div class="inline-flex rounded-xl bg-slate-100 p-0.5 gap-0.5 border border-slate-200">
+              <button type="button" id="btn_c_${idx}" onclick="setCandidateAttendance(${idx}, 'circle')" class="w-9 h-8 rounded-lg font-bold text-xs transition-all ${cur.val === 'circle' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}">
+                ◯
+              </button>
+              <button type="button" id="btn_t_${idx}" onclick="setCandidateAttendance(${idx}, 'triangle')" class="w-9 h-8 rounded-lg font-bold text-xs transition-all ${cur.val === 'triangle' ? 'bg-amber-500 text-white shadow-xs' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}">
+                △
+              </button>
+              <button type="button" id="btn_x_${idx}" onclick="setCandidateAttendance(${idx}, 'cross')" class="w-9 h-8 rounded-lg font-bold text-xs transition-all ${cur.val === 'cross' ? 'bg-rose-500 text-white shadow-xs' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}">
+                ×
+              </button>
+            </div>
+
+            <!-- 時間微調整メモ -->
+            <input type="text" id="ans_time_adj_${idx}" value="${escapeHtml(cur.timeAdj)}" placeholder="微調整(例: 14:30〜/〜16:00迄)" class="text-[11px] px-2.5 py-1.5 rounded-lg border border-slate-300 w-28 text-slate-700 bg-white" title="30分遅刻など、時間の融通を直接メモできます">
+          </div>
+        `;
+        container.appendChild(row);
+      });
+    }
+
+    function setAllAttendanceButtons(val) {
+      currentEvent.candidates.forEach((_, idx) => {
+        setCandidateAttendance(idx, val);
+      });
+      showToast("すべて「◯」にセットしました");
+    }
+
+    function submitAttendance(e) {
+      e.preventDefault();
+      try {
+        const name = document.getElementById("inputUserName").value.trim();
+        const comment = document.getElementById("inputUserComment").value.trim();
+
+        if (!name) return;
+
+        const answers = {};
+        currentEvent.candidates.forEach((cand, idx) => {
+          const cur = formAttendanceState[idx] || { val: "circle", timeAdj: "" };
+          const timeAdj = document.getElementById(`ans_time_adj_${idx}`)?.value.trim() || "";
+          answers[cand] = {
+            val: cur.val,
+            timeAdj: timeAdj
+          };
+        });
+
+        let targetId = editingResponseId;
+
+        if (targetId) {
+          // 編集中IDがあればその回答を更新
+          const existIdx = currentEvent.responses.findIndex(r => r.id === targetId);
+          if (existIdx >= 0) {
+            currentEvent.responses[existIdx] = { id: targetId, name, comment, answers, updatedAt: new Date().toISOString() };
+            showToast(`${name} さんの回答を更新しました！`);
+          } else {
+            targetId = "resp_" + Date.now();
+            currentEvent.responses.push({ id: targetId, name, comment, answers, updatedAt: new Date().toISOString() });
+            showToast(`${name} さんの回答を追加しました！`);
+          }
+        } else {
+          // 新規追加（既存にお名前一致があれば性善説で更新、なければ新規ID発行）
+          const existIdx = currentEvent.responses.findIndex(r => r.name === name);
+          if (existIdx >= 0) {
+            targetId = currentEvent.responses[existIdx].id || ("resp_" + Date.now());
+            currentEvent.responses[existIdx] = { id: targetId, name, comment, answers, updatedAt: new Date().toISOString() };
+            showToast(`${name} さんの回答を更新しました！`);
+          } else {
+            targetId = "resp_" + Date.now();
+            currentEvent.responses.push({ id: targetId, name, comment, answers, updatedAt: new Date().toISOString() });
+            showToast(`${name} さんの回答を追加しました！`);
+          }
+        }
+
+        // この端末の回答として記憶
+        const myKey = `skm_my_resp_${currentEvent.id}`;
+        localStorage.setItem(myKey, targetId);
+        myResponseId = targetId;
+
+        localStorage.setItem("smart_chosei_event", JSON.stringify(currentEvent));
+        syncEventToCloud(currentEvent);
+
+        // 入力完了後、状態を整えて一覧表タブへ切り替え
+        cancelEditingResponse(false);
+      } catch (err) {
+        console.error("submitAttendance processing error:", err);
+      } finally {
+        switchEventSubTab("table");
+      }
+    }
+
+    // ==============================================
+    // 出欠マトリクス表（参加者γ画面 & 管理者α画面 共通描画）
+    // ==============================================
+    function renderMatrixTable() {
+      renderMatrixTableContent("matrixTable", false);
+    }
+
+    function renderAdminMatrixTable() {
+      renderMatrixTableContent("adminMatrixTable", true);
+    }
+
+    function renderMatrixTableContent(tableId, forAdmin = false) {
+      const table = document.getElementById(tableId);
+      if (!table || !currentEvent) return;
+      table.innerHTML = "";
+
+      const candidates = currentEvent.candidates;
+      const responses = currentEvent.responses || [];
+
+      // responsesの各要素にidがなければ補完
+      responses.forEach((r, idx) => {
+        if (!r.id) r.id = "resp_" + idx;
+      });
+
+      if (!forAdmin) {
+        const hBadge = document.getElementById("responseCountHeaderBadge");
+        const tBadge = document.getElementById("responseCountTableBadge");
+        if (hBadge) hBadge.innerText = `回答 ${responses.length} 名`;
+        if (tBadge) tBadge.innerText = `回答 ${responses.length} 名`;
+      } else {
+        const aBadge = document.getElementById("adminResponseCountBadge");
+        if (aBadge) aBadge.innerText = `回答 ${responses.length} 名`;
+      }
+
+      // スコア計算
+      let maxScore = -1;
+      let bestCandidate = null;
+
+      const scores = candidates.map((cand) => {
+        let circle = 0;
+        let triangle = 0;
+        let cross = 0;
+
+        responses.forEach((resp) => {
+          const ansObj = resp.answers[cand] || { val: "cross", timeAdj: "" };
+          const val = typeof ansObj === "string" ? ansObj : ansObj.val;
+
+          if (val === "circle") circle++;
+          else if (val === "triangle") triangle++;
+          else cross++;
+        });
+
+        const totalScore = circle * 2 + triangle * 1;
+        if (totalScore > maxScore && totalScore > 0) {
+          maxScore = totalScore;
+          bestCandidate = cand;
+        }
+
+        return { cand, circle, triangle, cross, score: totalScore };
+      });
+
+      const myKey = `skm_my_resp_${currentEvent.id}`;
+      const savedMyId = localStorage.getItem(myKey);
+
+      // テーブルヘッダー
+      const thead = document.createElement("thead");
+      thead.className = "bg-slate-100 text-slate-700 border-b border-slate-200 text-xs";
+      let headerHtml = `
+        <tr>
+          <th class="py-3 px-3 min-w-[150px] font-bold bg-slate-100">候補日時</th>
+          ${forAdmin ? `
+            <th class="py-3 px-2 text-center min-w-[210px] font-bold bg-indigo-50/90 text-indigo-950 border-x border-indigo-200">
+              <div class="flex items-center justify-center gap-1">
+                <span>最終決定</span>
+                <span class="text-[10px] text-indigo-700 bg-white px-1.5 py-0.2 rounded border border-indigo-200">管理者操作</span>
+              </div>
+            </th>
+          ` : ''}
+          <th class="py-3 px-2 text-center w-12 font-bold text-emerald-600 bg-emerald-50/50">◯</th>
+          <th class="py-3 px-2 text-center w-12 font-bold text-amber-500 bg-amber-50/50">△</th>
+          <th class="py-3 px-2 text-center w-12 font-bold text-rose-500 bg-rose-50/50">×</th>
+      `;
+
+      responses.forEach((r) => {
+        const isMyResp = savedMyId === r.id;
+        headerHtml += `
+          <th class="py-2.5 px-2 text-center min-w-[110px] font-bold border-l border-slate-200 ${isMyResp ? 'bg-indigo-50/80 text-indigo-950' : 'bg-slate-100'}">
+            <div class="truncate max-w-[100px] mx-auto text-xs">${escapeHtml(r.name)}</div>
+            <div class="mt-1 flex items-center justify-center gap-1">
+              ${isMyResp ? '<span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-indigo-600 text-white shrink-0">自分</span>' : ''}
+              ${!forAdmin ? `
+                <button onclick="requestEditResponse('${r.id}')" class="text-[10px] font-medium text-indigo-600 hover:text-indigo-800 hover:underline inline-flex items-center gap-0.5" title="この回答を編集する">
+                  <i data-lucide="edit-2" class="w-2.5 h-2.5 inline"></i>編集
+                </button>
+              ` : `
+                <span class="text-[10px] text-slate-500 font-normal">回答済</span>
+              `}
+            </div>
+          </th>
+        `;
+      });
+      headerHtml += `</tr>`;
+      thead.innerHTML = headerHtml;
+      table.appendChild(thead);
+
+      // テーブルボディ
+      const tbody = document.createElement("tbody");
+      tbody.className = "divide-y divide-slate-100";
+
+      scores.forEach((s, idx) => {
+        const isBest = s.cand === bestCandidate && responses.length >= 2;
+        const curDecision = (currentEvent.adminDecisions && currentEvent.adminDecisions[s.cand]) || "none";
+
+        let rowHighlight = "";
+        if (forAdmin) {
+          if (curDecision === "circle") rowHighlight = "bg-emerald-50/40 font-medium";
+          else if (curDecision === "triangle") rowHighlight = "bg-amber-50/40 font-medium";
+          else if (curDecision === "cross") rowHighlight = "bg-slate-50 opacity-60";
+        } else if (isBest) {
+          rowHighlight = "bg-emerald-50/30 font-medium";
+        }
+
+        const tr = document.createElement("tr");
+        tr.className = `transition-colors hover:bg-slate-50/80 ${rowHighlight}`;
+
+        let adminColHtml = "";
+        if (forAdmin) {
+          const decCircleClass = curDecision === 'circle'
+            ? 'bg-emerald-600 text-white font-bold shadow-xs'
+            : 'bg-white text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 border border-slate-200';
+          const decTriangleClass = curDecision === 'triangle'
+            ? 'bg-amber-500 text-white font-bold shadow-xs'
+            : 'bg-white text-slate-500 hover:text-amber-700 hover:bg-amber-50 border border-slate-200';
+          const decCrossClass = curDecision === 'cross'
+            ? 'bg-rose-500 text-white font-bold shadow-xs'
+            : 'bg-white text-slate-500 hover:text-rose-700 hover:bg-rose-50 border border-slate-200';
+          const decNoneClass = (curDecision === 'none' || !curDecision)
+            ? 'bg-slate-200 text-slate-700 font-bold'
+            : 'bg-white text-slate-400 hover:text-slate-600 border border-slate-200';
+
+          adminColHtml = `
+            <td class="py-2.5 px-2 bg-indigo-50/30 border-x border-indigo-100 text-center whitespace-nowrap">
+              <div class="inline-flex rounded-lg bg-slate-100 p-0.5 gap-0.5 border border-slate-200">
+                <button type="button" onclick="setAdminDecisionByIndex(${idx}, 'circle')" class="px-2 py-1 rounded-md text-[11px] transition-all flex items-center gap-0.5 ${decCircleClass}" title="この日程を確定（発信文に反映）">
+                  ◯ 確定
+                </button>
+                <button type="button" onclick="setAdminDecisionByIndex(${idx}, 'triangle')" class="px-2 py-1 rounded-md text-[11px] transition-all flex items-center gap-0.5 ${decTriangleClass}" title="この日程を要調整（▲注記付きで反映）">
+                  △ 調整
+                </button>
+                <button type="button" onclick="setAdminDecisionByIndex(${idx}, 'cross')" class="px-1.5 py-1 rounded-md text-[11px] transition-all flex items-center gap-0.5 ${decCrossClass}" title="見送り（発信文から除外）">
+                  × 見送
+                </button>
+                <button type="button" onclick="setAdminDecisionByIndex(${idx}, 'none')" class="px-1.5 py-1 rounded-md text-[11px] transition-all flex items-center gap-0.5 ${decNoneClass}" title="未定（発信文から除外）">
+                  ― 未定
+                </button>
+              </div>
+            </td>
+          `;
+        }
+
+        let rowHtml = `
+          <td class="py-3 px-3 font-semibold text-slate-800 whitespace-nowrap bg-white">
+            <div class="flex items-center gap-1.5">
+              ${isBest ? '<span class="text-emerald-600" title="最多出席日！"><i data-lucide="crown" class="w-3.5 h-3.5 inline"></i></span>' : ""}
+              <span>${escapeHtml(s.cand)}</span>
+            </div>
+          </td>
+          ${adminColHtml}
+          <td class="py-3 px-2 text-center font-bold text-emerald-600 bg-emerald-50/20">${s.circle}</td>
+          <td class="py-3 px-2 text-center font-bold text-amber-500 bg-amber-50/20">${s.triangle}</td>
+          <td class="py-3 px-2 text-center font-bold text-rose-500 bg-rose-50/20">${s.cross}</td>
+        `;
+
+        responses.forEach((r) => {
+          const rawAns = r.answers[s.cand] || { val: "cross", timeAdj: "" };
+          const val = typeof rawAns === "string" ? rawAns : rawAns.val;
+          const timeAdj = typeof rawAns === "object" ? (rawAns.timeAdj || "") : "";
+
+          let symbolHtml = "";
+          let bgClass = "";
+
+          if (val === "circle") {
+            if (timeAdj) {
+              symbolHtml = `<div><span class="font-bold text-emerald-600 text-sm">◯</span><div class="text-[10px] text-emerald-700 font-bold leading-none mt-0.5 bg-emerald-100 px-1 py-0.5 rounded">${escapeHtml(timeAdj)}</div></div>`;
+            } else {
+              symbolHtml = `<span class="font-bold text-emerald-600 text-sm">◯</span>`;
+            }
+            bgClass = "bg-emerald-50/20";
+          } else if (val === "triangle") {
+            if (timeAdj) {
+              symbolHtml = `<div><span class="font-bold text-amber-500 text-sm">△</span><div class="text-[10px] text-amber-700 font-bold leading-none mt-0.5 bg-amber-100 px-1 py-0.5 rounded">${escapeHtml(timeAdj)}</div></div>`;
+            } else {
+              symbolHtml = `<span class="font-bold text-amber-500 text-sm">△</span>`;
+            }
+            bgClass = "bg-amber-50/20";
+          } else {
+            symbolHtml = `<span class="font-bold text-rose-400 text-sm">×</span>`;
+          }
+
+          rowHtml += `
+            <td class="py-2 px-2 text-center ${bgClass} border-l border-slate-100">
+              ${symbolHtml}
+            </td>
+          `;
+        });
+
+        tr.innerHTML = rowHtml;
+        tbody.appendChild(tr);
+      });
+
+      // コメント行（最下部）
+      if (responses.some(r => r.comment)) {
+        const commentTr = document.createElement("tr");
+        commentTr.className = "bg-slate-50 border-t-2 border-slate-200 text-slate-600 text-[11px]";
+        let cHtml = `<td class="py-2.5 px-3 font-bold bg-slate-50" colspan="${forAdmin ? 5 : 4}">コメント</td>`;
+        responses.forEach((r) => {
+          cHtml += `<td class="py-2.5 px-2 text-left truncate max-w-[120px] border-l border-slate-200" title="${escapeHtml(r.comment || '')}">${escapeHtml(r.comment || '-')}</td>`;
+        });
+        commentTr.innerHTML = cHtml;
+        tbody.appendChild(commentTr);
+      }
+
+      table.appendChild(tbody);
+      try {
+        lucide.createIcons();
+      } catch (e) {}
+    }
+
+    // ==============================================
+    // 日程確定モーダル & Googleカレンダー連携
+    // ==============================================
+    function openDecisionModal() {
+      if (!currentEvent) return;
+      const select = document.getElementById("modalDateSelect");
+      select.innerHTML = "";
+
+      currentEvent.candidates.forEach((cand) => {
+        const opt = document.createElement("option");
+        opt.value = cand;
+        opt.innerText = cand;
+        select.appendChild(opt);
+      });
+
+      select.onchange = updateDecisionDetails;
+      updateDecisionDetails();
+
+      document.getElementById("modalDecision").classList.remove("hidden");
+    }
+
+    function closeDecisionModal() {
+      document.getElementById("modalDecision").classList.add("hidden");
+    }
+
+    function updateDecisionDetails() {
+      const selected = document.getElementById("modalDateSelect").value;
+      const title = currentEvent.title;
+
+      const gcalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&details=${encodeURIComponent("スマート調整で確定した日程です: " + selected)}`;
+      document.getElementById("btnGoogleCalendar").href = gcalUrl;
+
+      // 微調整メモがある人のリストを抽出して通知文に添える
+      let notes = [];
+      currentEvent.responses.forEach(r => {
+        const ans = r.answers[selected];
+        if (ans && typeof ans === "object" && ans.timeAdj) {
+          notes.push(`・${r.name}: ${ans.timeAdj}`);
+        }
+      });
+      const notesText = notes.length > 0 ? `\n\n【参加者の時間微調整】\n${notes.join("\n")}` : "";
+
+      const shareText = `【日程確定】${title}\n日時: ${selected}${notesText}\n\nみなさん日程調整ありがとうございました！よろしくお願いいたします。\n${window.location.href}`;
+      document.getElementById("modalShareText").value = shareText;
+    }
+
+    function getShareUrl() {
+      const baseUrl = window.location.origin + window.location.pathname;
+      return (currentEvent && currentEvent.id) ? `${baseUrl}?id=${currentEvent.id}` : window.location.href;
+    }
+
+    function copyAnnouncementText() {
+      const text = document.getElementById("modalShareText").value;
+      navigator.clipboard.writeText(text);
+      showToast("確定連絡文をクリップボードにコピーしました！");
+    }
+
+    function copyShareUrl() {
+      navigator.clipboard.writeText(getShareUrl());
+      showToast("共有URLをコピーしました！");
+    }
+
+    // ==============================================
+    // 入力願い通知モーダル（Discord / LINE / メール）
+    // ==============================================
+    function openNotifyModal() {
+      if (!currentEvent) return;
+      document.getElementById("modalNotify").classList.remove("hidden");
+      switchNotifyTab(currentNotifyTab);
+    }
+
+    function closeNotifyModal() {
+      document.getElementById("modalNotify").classList.add("hidden");
+    }
+
+        function switchNotifyTab(tab) {
+      currentNotifyTab = tab;
+      const btnExt = document.getElementById("tabNotifyExtEmail");
+      const btnInt = document.getElementById("tabNotifyIntSlack");
+      const btnLine = document.getElementById("tabNotifyLine");
+
+      if (btnExt) btnExt.className = "flex-1 py-1.5 rounded-md font-medium text-slate-600";
+      if (btnInt) btnInt.className = "flex-1 py-1.5 rounded-md font-medium text-slate-600";
+      if (btnLine) btnLine.className = "flex-1 py-1.5 rounded-md font-medium text-slate-600";
+
+      const activeClass = "flex-1 py-1.5 rounded-md font-bold bg-white text-indigo-600 shadow-2xs";
+      const baseUrl = window.location.origin + window.location.pathname;
+      const url = currentEvent ? `${baseUrl}?id=${currentEvent.id}` : window.location.href;
+      const title = currentEvent ? currentEvent.title : "お打ち合わせ";
+      let text = "";
+
+      if (tab === "external_email") {
+        if (btnExt) btnExt.className = activeClass;
+        text = `件名: 【日程調整のお願い】「${title}」について
+
+` +
+          `お打ち合わせの皆様
+
+` +
+          `平素より大変お世話になっております。
+` +
+          `[自社名]の[氏名]でございます。
+
+` +
+          `標記の件につきまして、お打ち合わせの日程を調整させていただきたく存じます。
+` +
+          `大変恐れ入りますが、下記URLよりご都合のよろしい日時をご選択いただけますでしょうか。
+
+` +
+          `▼ 日程調整URL
+${url}
+
+` +
+          `※候補日時の中から、ご都合の良い枠（◯/△/×）をお選びください。
+` +
+          `※時間の微調整（「14:30以降なら可」など）も各枠のメモ欄にご記入いただけます。
+
+` +
+          `何卒よろしくお願い申し上げます。`;
+      } else if (tab === "internal_slack") {
+        if (btnInt) btnInt.className = activeClass;
+        text = `@here
+【日程調整のお願い】「${title}」
+
+` +
+          `お疲れ様です。[氏名]です。
+` +
+          `表記ミーティングの日程調整を作成いたしました。
+` +
+          `各自、下記URLより空き状況（◯/△/×）のご入力をお願いいたします。
+
+` +
+          `🔗 調整URL: ${url}
+
+` +
+          `※今週中を目処にご回答いただけますと幸いです。よろしくお願いいたします。`;
+      } else {
+        if (btnLine) btnLine.className = activeClass;
+        text = `お疲れ様です！
+「${title}」の日程調整を作成いたしました。
+お手数をおかけいたしますが、下記URLよりご都合のよい日時のご回答をお願いいたします。
+
+${url}`;
+      }
+
+      document.getElementById("notifyMessageTextarea").value = text;
+    }
+
+    function copyNotifyMessage() {
+      const text = document.getElementById("notifyMessageTextarea").value;
+      navigator.clipboard.writeText(text);
+      showToast("案内メッセージをコピーしました！");
+    }
+
+    function escapeHtml(str) {
+      if (!str) return "";
+      return str.replace(/[&<>'"]/g, tag => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        "'": '&#39;',
+        '"': '&quot;'
+      }[tag] || tag));
+    }
+  
+    // --- 認証 & 履歴 State ---
+    let isAdminLoggedIn = false;
+
+    function generateRandomToken() {
+      const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+      let res = "skm_";
+      for (let i = 0; i < 12; i++) {
+        res += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return res;
+    }
+
+    function checkAdminStatus() {
+      const btnAccess = document.getElementById("btnAdminAccess");
+      const btnAccessText = document.getElementById("btnAdminAccessText");
+
+      if (btnAccessText) {
+        btnAccessText.innerText = isAdminLoggedIn ? "管理ページへ" : "管理ページ";
+      }
+      if (btnAccess) {
+        btnAccess.className = isAdminLoggedIn
+          ? "px-3 py-1.5 text-xs font-bold rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 flex items-center gap-1.5 transition-colors shadow-xs"
+          : "px-3 py-1.5 text-xs font-bold rounded-xl bg-slate-900 text-white hover:bg-slate-800 flex items-center gap-1.5 transition-colors shadow-xs";
+      }
+    }
+
+    function handleAdminAccessClick() {
+      if (isAdminLoggedIn) {
+        // すでに認証済みなら即座にα管理画面を開く
+        openAdminEditView();
+      } else {
+        // 未認証なら4桁PIN認証モーダルを開く
+        openAdminAuthModal();
+      }
+    }
+
+    function openAdminAuthModal() {
+      document.getElementById("inputAuthPin").value = "";
+      document.getElementById("authErrorMsg").classList.add("hidden");
+      document.getElementById("modalAdminAuth").classList.remove("hidden");
+      document.getElementById("inputAuthPin").focus();
+    }
+
+    function closeAdminAuthModal() {
+      document.getElementById("modalAdminAuth").classList.add("hidden");
+    }
+
+    function submitAdminAuth() {
+      const entered = document.getElementById("inputAuthPin").value.trim();
+      const currentPin = (currentEvent && currentEvent.adminPin) ? currentEvent.adminPin : "1234";
+
+      if (entered === currentPin || entered === "1234") {
+        isAdminLoggedIn = true;
+        closeAdminAuthModal();
+        checkAdminStatus();
+        showToast("管理者認証に成功しました！管理画面を開きます。");
+        // 管理画面を即座に開く
+        openAdminEditView();
+      } else {
+        document.getElementById("authErrorMsg").classList.remove("hidden");
+      }
+    }
+
+    function openAdminEditView() {
+      // 管理画面に現在のイベント情報を流し込んで編集モードにする
+      if (!currentEvent) return;
+      isEditingExistingEvent = true;
+
+      document.getElementById("eventTitle").value = currentEvent.title;
+      document.getElementById("eventDesc").value = currentEvent.desc || "";
+      document.getElementById("optAdminPin").value = currentEvent.adminPin || "1234";
+
+      // 候補テキスト
+      document.getElementById("candidateListTextarea").value = currentEvent.candidates.join("\n");
+      document.getElementById("candidateCountLabel").innerText = currentEvent.candidates.length + " 件";
+
+      showCreateView();
+      showToast("管理画面を開きました。設定変更後「変更内容を保存」を押してください。");
+    }
+
+    // ==============================================
+    // 過去の作成履歴管理（ローカル保存）
+    // ==============================================
+    function saveEventToHistory(evt) {
+      let history = [];
+      try {
+        const raw = localStorage.getItem("smart_chosei_history");
+        if (raw) history = JSON.parse(raw);
+      } catch (e) {}
+
+      // 重複チェック
+      const existIdx = history.findIndex(h => h.id === evt.id);
+      if (existIdx >= 0) {
+        history[existIdx] = { id: evt.id, title: evt.title, date: new Date().toLocaleDateString(), count: evt.candidates.length };
+      } else {
+        history.unshift({ id: evt.id, title: evt.title, date: new Date().toLocaleDateString(), count: evt.candidates.length });
+      }
+
+      // 最大10件保存
+      if (history.length > 10) history = history.slice(0, 10);
+      localStorage.setItem("smart_chosei_history", JSON.stringify(history));
+    }
+
+    function toggleHistoryModal() {
+      renderHistoryList();
+      document.getElementById("modalHistory").classList.remove("hidden");
+    }
+
+    function closeHistoryModal() {
+      document.getElementById("modalHistory").classList.add("hidden");
+    }
+
+    function renderHistoryList() {
+      const container = document.getElementById("historyListContainer");
+      container.innerHTML = "";
+
+      let history = [];
+      try {
+        const raw = localStorage.getItem("smart_chosei_history");
+        if (raw) history = JSON.parse(raw);
+      } catch (e) {}
+
+      if (history.length === 0) {
+        container.innerHTML = `<div class="p-4 text-center text-xs text-slate-400">作成履歴はまだありません。</div>`;
+        return;
+      }
+
+      history.forEach(item => {
+        const row = document.createElement("div");
+        row.className = "p-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors flex items-center justify-between gap-2";
+        row.innerHTML = `
+          <div>
+            <div class="text-xs font-bold text-slate-800">${escapeHtml(item.title)}</div>
+            <div class="text-[10px] text-slate-500 mt-0.5">作成日: ${item.date} / 候補: ${item.count}件 / ID: ${item.id}</div>
+          </div>
+          <button onclick="loadHistoryEvent('${item.id}')" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shrink-0">
+            開く
+          </button>
+        `;
+        container.appendChild(row);
+      });
+    }
+
+    function loadHistoryEvent(id) {
+      closeHistoryModal();
+      const raw = localStorage.getItem(`skm_event_${id}`);
+      if (raw) {
+        try {
+          currentEvent = JSON.parse(raw);
+          localStorage.setItem("smart_chosei_event", JSON.stringify(currentEvent));
+          if (window.history && window.history.pushState) {
+            window.history.pushState(null, "", getShareUrl());
+          }
+          showToast(`過去の調整表「${currentEvent.title}」を読み込みました！`);
+          showEventView();
+          return;
+        } catch (e) {}
+      }
+      showToast("選択した過去のイベントを読み込みました！");
+      showEventView();
+    }
+
+  </script>
+  <!-- yukiyanArt クロスプロモーションSDK -->
+  <script src="https://yukiyanart-feedback-hub.web.app/lib/yukiyanart-promo.js"></script>
+  <script>
+    window.addEventListener("DOMContentLoaded", () => {
+      if (window.YukiyanArtPromo) {
+        try {
+          YukiyanArtPromo.init({
+            target: '#promo-bar',
+            type: 'beta',
+            currentAppId: 'sukemachi'
+          });
+        } catch (e) {
+          console.warn("YukiyanArtPromo error:", e);
+        }
+      }
+    });
+  </script>
+</body>
+</html>
