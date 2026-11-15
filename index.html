@@ -395,9 +395,9 @@
               <i data-lucide="key-round" class="w-4 h-4 text-indigo-600 shrink-0"></i>
               <div class="text-left">
                 <label for="optAdminPin" class="block text-xs font-bold text-indigo-950 leading-tight cursor-pointer">
-                  管理PASS <span class="text-rose-500">*</span>
+                  管理PASS <span id="optAdminPinRequired" class="text-rose-500">*</span>
                 </label>
-                <span class="block text-[10px] text-indigo-600/80 leading-tight">確定・編集用4桁PIN</span>
+                <span id="optAdminPinSubText" class="block text-[10px] text-indigo-600/80 leading-tight">確定・編集用4桁PIN</span>
               </div>
             </div>
             <input type="text" id="optAdminPin" maxlength="4" pattern="\d*" inputmode="numeric" placeholder="4桁数字" value="" class="w-20 px-2.5 py-1.5 rounded-lg border border-indigo-300 focus:border-indigo-600 focus:ring-2 focus:ring-indigo-500/20 text-center font-mono font-bold text-sm tracking-widest text-slate-900 bg-white" title="4桁の数字を入力してください（後から確定・編集する際に必要になります）">
@@ -889,17 +889,43 @@
     let lastKnownResponseCount = 0;
     let lastKnownCandidateCount = 0;
 
+    async function hashPin(pin, eventId) {
+      if (!pin) return "";
+      try {
+        const text = `${pin}_${eventId}`;
+        const encoder = new TextEncoder();
+        const data = encoder.encode(text);
+        const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+      } catch (err) {
+        console.warn("hashPin error, fallback to basic hash:", err);
+        let h = 0;
+        const str = `${pin}_${eventId}`;
+        for (let i = 0; i < str.length; i++) {
+          h = ((h << 5) - h) + str.charCodeAt(i);
+          h |= 0;
+        }
+        return "bk_" + Math.abs(h).toString(16);
+      }
+    }
+
     async function syncEventToCloud(evt) {
       if (!evt || !evt.id) return;
+      // 平文のadminPinがあれば安全のため消去
+      if (evt.adminPin) {
+        delete evt.adminPin;
+      }
       // 1. ローカルストレージに即時保存
       localStorage.setItem("smart_chosei_event", JSON.stringify(evt));
       localStorage.setItem(`skm_event_${evt.id}`, JSON.stringify(evt));
       saveEventToHistory(evt);
 
-      // 2. クラウド（Firestore）へ非同期保存
+      // 2. クラウド（Firestore）へ非同期保存（平文PINは絶対に送らない）
       if (!db) return;
       try {
         const payload = JSON.parse(JSON.stringify(evt));
+        delete payload.adminPin;
         payload.updatedAt = new Date().toISOString();
         await db.collection("skm_events").doc(evt.id).set(payload, { merge: true });
       } catch (err) {
@@ -1511,6 +1537,8 @@
       const viewTitle = document.getElementById("viewCreateHeaderTitle");
       const adminMatrixSec = document.getElementById("adminMatrixSection");
       const adminDecisionSec = document.getElementById("adminDecisionSection");
+      const pinSubText = document.getElementById("optAdminPinSubText");
+      const pinRequired = document.getElementById("optAdminPinRequired");
 
       if (isEditingExistingEvent && currentEvent) {
         if (banner) banner.classList.remove("hidden");
@@ -1521,6 +1549,8 @@
         if (btnSubmitText) btnSubmitText.innerText = "変更内容を保存して調整表に戻る";
         if (btnSubmitIconWrap) btnSubmitIconWrap.innerHTML = '<i data-lucide="save" class="w-4 h-4"></i>';
         if (viewTitle) viewTitle.innerHTML = `<i data-lucide="edit-3" class="w-5 h-5 text-indigo-600 inline"></i> 調整表「${escapeHtml(currentEvent.title)}」の管理・編集`;
+        if (pinSubText) pinSubText.innerText = "変更時のみ入力";
+        if (pinRequired) pinRequired.classList.add("hidden");
 
         // 決定状態を復元
         adminDecisions = currentEvent.adminDecisions || {};
@@ -1537,6 +1567,8 @@
         if (btnSubmitText) btnSubmitText.innerText = "出欠表を作成する";
         if (btnSubmitIconWrap) btnSubmitIconWrap.innerHTML = '<i data-lucide="arrow-right" class="w-4 h-4"></i>';
         if (viewTitle) viewTitle.innerHTML = `<i data-lucide="calendar-plus" class="w-5 h-5 text-indigo-600 inline"></i> 新しい日程調整（スケマチ）を作成`;
+        if (pinSubText) pinSubText.innerText = "確定・編集用4桁PIN";
+        if (pinRequired) pinRequired.classList.remove("hidden");
 
         // 新規作成時は管理者専用セクションを非表示
         if (adminMatrixSec) adminMatrixSec.classList.add("hidden");
@@ -1909,22 +1941,37 @@
       showToast("変更を破棄して元の調整表に戻りました");
     }
 
-    function submitEventFormAction() {
+    async function submitEventFormAction() {
       if (isEditingExistingEvent && currentEvent) {
-        saveExistingEventEdits();
+        await saveExistingEventEdits();
       } else {
-        createEventFromForm();
+        await createEventFromForm();
       }
     }
 
     // 既存イベントの変更保存（回答データを失わずに安全にマージ！）
-    function saveExistingEventEdits() {
+    async function saveExistingEventEdits() {
       const title = document.getElementById("eventTitle").value.trim();
       const desc = document.getElementById("eventDesc").value.trim();
+      const ta = document.getElementById("candidateListTextarea").value.trim();
       const pinEl = document.getElementById("optAdminPin");
       const adminPin = pinEl ? pinEl.value.trim() : "";
 
-      if (!adminPin || adminPin.length < 4) {
+      // PIN変更チェック（空欄なら既存ハッシュを維持、入力があれば4桁数字をチェックして新ハッシュ生成）
+      let newPinHash = currentEvent.adminPinHash || "";
+      if (adminPin) {
+        if (!/^\d{4}$/.test(adminPin)) {
+          alert("管理PASSを変更する場合は4桁の数字を入力してください。\n（変更しない場合は空欄で構いません）");
+          if (pinEl) pinEl.focus();
+          return;
+        }
+        newPinHash = await hashPin(adminPin, currentEvent.id);
+      } else if (!newPinHash && currentEvent.adminPin) {
+        // 既存の平文PINがあればハッシュ化して自動移行
+        newPinHash = await hashPin(currentEvent.adminPin, currentEvent.id);
+      }
+
+      if (!newPinHash && !adminPin) {
         alert("管理用PASS（4桁の数字）を入力してください。\n（日程の確定や修正の際に必要になります）");
         if (pinEl) pinEl.focus();
         return;
@@ -1970,10 +2017,11 @@
         }
       });
 
-      // イベント内容を更新
+      // イベント内容を更新（平文PINは除外）
       currentEvent.title = title;
       currentEvent.desc = desc;
-      currentEvent.adminPin = adminPin;
+      currentEvent.adminPinHash = newPinHash;
+      delete currentEvent.adminPin;
       currentEvent.candidates = newCandidates;
       currentEvent.responses = updatedResponses;
       currentEvent.adminDecisions = updatedDecisions;
@@ -1981,7 +2029,7 @@
       currentEvent.updatedAt = new Date().toISOString();
 
       // 各種保存（ローカル＆クラウド）
-      syncEventToCloud(currentEvent);
+      await syncEventToCloud(currentEvent);
 
       // URL同期
       if (window.history && window.history.replaceState) {
@@ -1994,13 +2042,13 @@
       switchEventSubTab("table"); // 更新後は結果一覧を表示
     }
 
-    function createEventFromForm() {
+    async function createEventFromForm() {
       const title = document.getElementById("eventTitle").value.trim();
       const desc = document.getElementById("eventDesc").value.trim();
       const ta = document.getElementById("candidateListTextarea").value.trim();
       const pinEl = document.getElementById("optAdminPin");
       const adminPin = pinEl ? pinEl.value.trim() : "";
-      if (!adminPin || adminPin.length < 4) {
+      if (!adminPin || !/^\d{4}$/.test(adminPin)) {
         alert("管理用PASS（4桁の数字）を入力してください。\n（日程の確定や修正の際に必要になります）");
         if (pinEl) pinEl.focus();
         return;
@@ -2019,12 +2067,13 @@
       }
 
       const token = generateRandomToken();
+      const adminPinHash = await hashPin(adminPin, token);
 
       currentEvent = {
         id: token,
         title: title,
         desc: desc,
-        adminPin: adminPin,
+        adminPinHash: adminPinHash,
         candidates: candidates,
         responses: []
       };
@@ -2032,8 +2081,8 @@
       isAdminLoggedIn = true; // 作成者は自動で管理者権限を持つ！
       isEditingExistingEvent = false;
 
-      // 単一キーとID個別キー、およびクラウドに保存
-      syncEventToCloud(currentEvent);
+      // 単一キーとID個別キー、およびクラウドに保存（平文PINは除外）
+      await syncEventToCloud(currentEvent);
 
       // URLを即座に共有用URL（?id=skm_xxxx）へ同期
       if (window.history && window.history.pushState) {
@@ -2059,6 +2108,12 @@
         if (titleEl) titleEl.value = "";
         if (descEl) descEl.value = "";
         if (taEl) taEl.value = "";
+        const pinEl = document.getElementById("optAdminPin");
+        if (pinEl) {
+          pinEl.value = "";
+          pinEl.placeholder = "4桁数字";
+          pinEl.title = "4桁の数字を入力してください（後から確定・編集する際に必要になります）";
+        }
         selectedDates.clear();
         selectedTimePresets.clear();
         renderCalendar();
@@ -2806,6 +2861,8 @@ ${url}`;
   
     // --- 認証 & 履歴 State ---
     let isAdminLoggedIn = false;
+    let authFailCount = 0;
+    let authLockUntil = 0;
 
     function generateRandomToken() {
       const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -2832,7 +2889,7 @@ ${url}`;
 
     function handleAdminAccessClick() {
       if (isAdminLoggedIn) {
-        // すでに認証済みなら即座にα管理画面を開く
+        // すでに認証済みなら即座に管理画面を開く
         openAdminEditView();
       } else {
         // 未認証なら4桁PIN認証モーダルを開く
@@ -2841,29 +2898,105 @@ ${url}`;
     }
 
     function openAdminAuthModal() {
-      document.getElementById("inputAuthPin").value = "";
-      document.getElementById("authErrorMsg").classList.add("hidden");
+      const now = Date.now();
+      const pinInput = document.getElementById("inputAuthPin");
+      const errEl = document.getElementById("authErrorMsg");
+      if (pinInput) pinInput.value = "";
+
+      if (now < authLockUntil) {
+        const remainSec = Math.ceil((authLockUntil - now) / 1000);
+        if (errEl) {
+          errEl.innerText = `連続失敗のため一時制限中です（残り ${remainSec} 秒）`;
+          errEl.classList.remove("hidden");
+        }
+        if (pinInput) pinInput.disabled = true;
+      } else {
+        if (errEl) {
+          errEl.innerText = "パスコードが正しくありません";
+          errEl.classList.add("hidden");
+        }
+        if (pinInput) {
+          pinInput.disabled = false;
+          setTimeout(() => pinInput.focus(), 100);
+        }
+      }
       document.getElementById("modalAdminAuth").classList.remove("hidden");
-      document.getElementById("inputAuthPin").focus();
     }
 
     function closeAdminAuthModal() {
       document.getElementById("modalAdminAuth").classList.add("hidden");
     }
 
-    function submitAdminAuth() {
-      const entered = document.getElementById("inputAuthPin").value.trim();
-      const currentPin = (currentEvent && currentEvent.adminPin) ? currentEvent.adminPin : "";
+    async function submitAdminAuth() {
+      const now = Date.now();
+      const errEl = document.getElementById("authErrorMsg");
+      const pinInput = document.getElementById("inputAuthPin");
 
-      if (currentPin && entered === currentPin) {
+      if (now < authLockUntil) {
+        const remainSec = Math.ceil((authLockUntil - now) / 1000);
+        if (errEl) {
+          errEl.innerText = `連続失敗のため一時制限中です（残り ${remainSec} 秒）`;
+          errEl.classList.remove("hidden");
+        }
+        return;
+      }
+
+      const entered = pinInput ? pinInput.value.trim() : "";
+      if (!entered || !/^\d{4}$/.test(entered)) {
+        if (errEl) {
+          errEl.innerText = "4桁の数字パスコードを入力してください";
+          errEl.classList.remove("hidden");
+        }
+        return;
+      }
+
+      if (!currentEvent) return;
+
+      const enteredHash = await hashPin(entered, currentEvent.id);
+      const targetHash = currentEvent.adminPinHash;
+      const isPlainMatch = currentEvent.adminPin && entered === currentEvent.adminPin;
+      const isHashMatch = targetHash && enteredHash === targetHash;
+
+      if (isHashMatch || isPlainMatch) {
+        // 認証成功：カウンター・制限リセット
+        authFailCount = 0;
+        authLockUntil = 0;
         isAdminLoggedIn = true;
         closeAdminAuthModal();
         checkAdminStatus();
         showToast("管理者認証に成功しました！管理画面を開きます。");
+
+        // 平文PINが残っている旧データなら、ハッシュ化して安全に自動マイグレーション
+        if (!targetHash && isPlainMatch) {
+          currentEvent.adminPinHash = enteredHash;
+          delete currentEvent.adminPin;
+          syncEventToCloud(currentEvent);
+        }
+
         // 管理画面を即座に開く
         openAdminEditView();
       } else {
-        document.getElementById("authErrorMsg").classList.remove("hidden");
+        authFailCount++;
+        if (authFailCount >= 5) {
+          authLockUntil = Date.now() + 30000; // 30秒間ロック
+          authFailCount = 0;
+          if (pinInput) pinInput.disabled = true;
+          if (errEl) {
+            errEl.innerText = "5回連続で誤入力されたため、30秒間入力を制限します。";
+            errEl.classList.remove("hidden");
+          }
+          setTimeout(() => {
+            const pInput = document.getElementById("inputAuthPin");
+            const eEl = document.getElementById("authErrorMsg");
+            if (pInput) pInput.disabled = false;
+            if (eEl) eEl.classList.add("hidden");
+          }, 30000);
+        } else {
+          if (errEl) {
+            errEl.innerText = `パスコードが正しくありません（あと ${5 - authFailCount} 回で一時制限）`;
+            errEl.classList.remove("hidden");
+          }
+        }
       }
     }
 
@@ -2874,7 +3007,14 @@ ${url}`;
 
       document.getElementById("eventTitle").value = currentEvent.title;
       document.getElementById("eventDesc").value = currentEvent.desc || "";
-      document.getElementById("optAdminPin").value = currentEvent.adminPin || "";
+
+      // 管理PASS欄：平文は保持していないため空欄にし、プレースホルダーで案内
+      const pinEl = document.getElementById("optAdminPin");
+      if (pinEl) {
+        pinEl.value = "";
+        pinEl.placeholder = "未変更なら空欄";
+        pinEl.title = "4桁の数字を入力すると新しい管理PASSに変更できます（変更しない場合は空欄のままで構いません）";
+      }
 
       // 候補テキスト
       document.getElementById("candidateListTextarea").value = currentEvent.candidates.join("\n");

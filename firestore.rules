@@ -1,9 +1,13 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // スケマチ（出欠調整アプリ）：URL共有での閲覧・回答を許可
+    // スケマチ（出欠調整アプリ）：URL共有での閲覧・回答・管理を許可（削除禁止・PINハッシュ改ざん防止）
     match /skm_events/{eventId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create: if request.resource.data.id == eventId;
+      allow update: if request.resource.data.id == eventId
+                    && (!('adminPinHash' in resource.data) || request.resource.data.adminPinHash == resource.data.adminPinHash);
+      allow delete: if false;
     }
     // その他のコレクション（Feedback Hubなど）は認証ユーザーを許可
     match /{document=**} {
